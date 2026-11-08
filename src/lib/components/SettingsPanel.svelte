@@ -1,26 +1,20 @@
 <script lang="ts">
   import { CONFIG_LIMITS, EASINGS, FPS_OPTIONS } from '../renderer/types.ts';
   import { FONTS, FONT_IDS } from '../renderer/fonts.ts';
-  import {
-    RESOLUTION_OPTIONS,
-    normalizeHex,
-    type EditorForm,
-    type FormField,
-    type PreviewBackground,
-  } from '../ui/editor-form.ts';
+  import { RESOLUTION_OPTIONS, normalizeHex, type EditorForm, type FormField } from '../ui/editor-form.ts';
+  import { rangeFill } from '../ui/range.ts';
 
   interface Props {
     form: EditorForm;
     errors: Partial<Record<FormField, string>>;
-    background: PreviewBackground;
   }
 
-  let { form = $bindable(), errors, background = $bindable() }: Props = $props();
+  let { form = $bindable(), errors }: Props = $props();
 
   const EASING_LABELS: Record<(typeof EASINGS)[number], string> = {
-    linear: 'linear（一定速度）',
-    smoothstep: 'smoothstep（緩やかに加減速）',
-    smootherstep: 'smootherstep（より滑らかに加減速）',
+    linear: '一定（linear）',
+    smoothstep: 'なめらか（smoothstep）',
+    smootherstep: 'よりなめらか（smootherstep）',
   };
 
   // The colour picker only understands lowercase #rrggbb; fall back while the hex field is mid-edit.
@@ -50,14 +44,15 @@
     if (advancedErrorCount > 0) advancedOpen = true;
   });
 
+  const { fontSize: fontLimits, position: posLimits } = CONFIG_LIMITS;
   const err = (field: FormField) => errors[field];
   const describedBy = (field: FormField) => (errors[field] ? `err-${field}` : undefined);
 </script>
 
-<section class="settings" aria-labelledby="settings-title">
-  <h2 id="settings-title" class="section-title">設定</h2>
+<section class="settings" aria-labelledby="settings-title" id="settings">
+  <h2 id="settings-title" class="visually-hidden">設定</h2>
 
-  <div class="row two">
+  <div class="basic">
     <div class="field">
       <label for="startDate">開始日</label>
       <input
@@ -86,10 +81,8 @@
       />
       {#if err('endDate')}<p class="error" id="err-endDate">{err('endDate')}</p>{/if}
     </div>
-  </div>
-  <div class="row two">
-    <div class="field">
-      <label for="durationSeconds">動画秒数</label>
+    <div class="field duration">
+      <label for="durationSeconds">長さ</label>
       <div class="with-unit">
         <input
           id="durationSeconds"
@@ -108,177 +101,153 @@
       {#if err('durationSeconds')}<p class="error" id="err-durationSeconds">{err('durationSeconds')}</p>{/if}
     </div>
   </div>
+  <p class="hint" data-testid="date-format">表示形式 YYYY.MM.DD</p>
 
   <details class="advanced" bind:open={advancedOpen} data-testid="advanced-settings">
     <summary>
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
       詳細設定
       {#if advancedErrorCount > 0}<span class="summary-error">（エラー {advancedErrorCount} 件）</span>{/if}
     </summary>
 
-    <div class="advanced-body">
-      <fieldset>
-        <legend>出力</legend>
-        <div class="row two">
-          <div class="field">
-            <label for="fps">FPS</label>
-            <select id="fps" bind:value={form.fps} aria-invalid={!!err('fps')} aria-describedby={describedBy('fps')}>
-              {#each FPS_OPTIONS as fps (fps)}
-                <option value={fps}>{fps}</option>
-              {/each}
-            </select>
-            {#if err('fps')}<p class="error" id="err-fps">{err('fps')}</p>{/if}
-          </div>
-          <div class="field">
-            <label for="resolution">解像度</label>
-            <select
-              id="resolution"
-              bind:value={form.resolution}
-              aria-invalid={!!err('resolution')}
-              aria-describedby={describedBy('resolution')}
-            >
-              {#each RESOLUTION_OPTIONS as option (option.key)}
-                <option value={option.key}>{option.label}</option>
-              {/each}
-            </select>
-            {#if err('resolution')}<p class="error" id="err-resolution">{err('resolution')}</p>{/if}
-          </div>
-        </div>
-        <div class="field">
-          <label for="easing">速度曲線</label>
-          <select id="easing" bind:value={form.easing} aria-invalid={!!err('easing')} aria-describedby={describedBy('easing')}>
-            {#each EASINGS as easing (easing)}
-              <option value={easing}>{EASING_LABELS[easing]}</option>
-            {/each}
-          </select>
-          {#if err('easing')}<p class="error" id="err-easing">{err('easing')}</p>{/if}
-        </div>
-      </fieldset>
+    <div class="grid">
+      <div class="field">
+        <label for="fps">FPS</label>
+        <select id="fps" bind:value={form.fps} aria-invalid={!!err('fps')} aria-describedby={describedBy('fps')}>
+          {#each FPS_OPTIONS as fps (fps)}
+            <option value={fps}>{fps}</option>
+          {/each}
+        </select>
+        {#if err('fps')}<p class="error" id="err-fps">{err('fps')}</p>{/if}
+      </div>
+      <div class="field">
+        <label for="resolution">解像度</label>
+        <select
+          id="resolution"
+          bind:value={form.resolution}
+          aria-invalid={!!err('resolution')}
+          aria-describedby={describedBy('resolution')}
+        >
+          {#each RESOLUTION_OPTIONS as option (option.key)}
+            <option value={option.key}>{option.label}</option>
+          {/each}
+        </select>
+        {#if err('resolution')}<p class="error" id="err-resolution">{err('resolution')}</p>{/if}
+      </div>
+      <div class="field">
+        <label for="easing">速度曲線</label>
+        <select id="easing" bind:value={form.easing} aria-invalid={!!err('easing')} aria-describedby={describedBy('easing')}>
+          {#each EASINGS as easing (easing)}
+            <option value={easing}>{EASING_LABELS[easing]}</option>
+          {/each}
+        </select>
+        {#if err('easing')}<p class="error" id="err-easing">{err('easing')}</p>{/if}
+      </div>
 
-      <fieldset>
-        <legend>文字</legend>
-        <div class="field">
-          <label for="fontFamily">フォント</label>
-          <select
-            id="fontFamily"
-            bind:value={form.fontFamily}
-            aria-invalid={!!err('fontFamily')}
-            aria-describedby={describedBy('fontFamily')}
-          >
-            {#each FONT_IDS as id (id)}
-              <option value={id}>{FONTS[id].label}</option>
-            {/each}
-          </select>
-          {#if err('fontFamily')}<p class="error" id="err-fontFamily">{err('fontFamily')}</p>{/if}
+      <div class="field">
+        <label for="fontFamily">フォント</label>
+        <select
+          id="fontFamily"
+          bind:value={form.fontFamily}
+          aria-invalid={!!err('fontFamily')}
+          aria-describedby={describedBy('fontFamily')}
+        >
+          {#each FONT_IDS as id (id)}
+            <option value={id}>{FONTS[id].label}</option>
+          {/each}
+        </select>
+        {#if err('fontFamily')}<p class="error" id="err-fontFamily">{err('fontFamily')}</p>{/if}
+      </div>
+      <div class="field">
+        <label for="colorHex">文字色</label>
+        <div class="color-row">
+          <input
+            id="colorPicker"
+            class="swatch"
+            type="color"
+            value={pickerValue}
+            oninput={onPick}
+            aria-label="文字色（カラーピッカー）"
+          />
+          <input
+            id="colorHex"
+            class="mono"
+            type="text"
+            maxlength="7"
+            spellcheck="false"
+            autocomplete="off"
+            bind:value={form.color}
+            onblur={onHexBlur}
+            aria-invalid={!!err('color')}
+            aria-describedby={describedBy('color')}
+          />
         </div>
-
-        <div class="field">
-          <label for="colorHex">文字色</label>
-          <div class="color-row">
+        {#if err('color')}<p class="error" id="err-color">{err('color')}</p>{/if}
+      </div>
+      <div class="field font-size">
+        <label for="fontSize">フォントサイズ</label>
+        <div class="slider-row">
+          <input
+            id="fontSizeRange"
+            type="range"
+            min={fontLimits.min}
+            max={fontLimits.max}
+            step="1"
+            value={form.fontSize ?? fontLimits.min}
+            oninput={onFontSizeRange}
+            style:--pct={rangeFill(Number(form.fontSize), fontLimits.min, fontLimits.max)}
+            aria-label="フォントサイズ（スライダー）"
+            aria-valuetext={`${form.fontSize ?? '-'} px`}
+          />
+          <div class="with-unit narrow">
             <input
-              id="colorPicker"
-              class="swatch"
-              type="color"
-              value={pickerValue}
-              oninput={onPick}
-              aria-label="文字色（カラーピッカー）"
-            />
-            <input
-              id="colorHex"
-              class="mono"
-              type="text"
-              maxlength="7"
-              spellcheck="false"
-              autocomplete="off"
-              bind:value={form.color}
-              onblur={onHexBlur}
-              aria-invalid={!!err('color')}
-              aria-describedby={describedBy('color')}
-            />
-          </div>
-          {#if err('color')}<p class="error" id="err-color">{err('color')}</p>{/if}
-        </div>
-
-        <div class="field">
-          <label for="fontSize">フォントサイズ</label>
-          <div class="slider-row">
-            <input
-              id="fontSizeRange"
-              type="range"
-              min={CONFIG_LIMITS.fontSize.min}
-              max={CONFIG_LIMITS.fontSize.max}
+              id="fontSize"
+              type="number"
+              inputmode="numeric"
+              min={fontLimits.min}
+              max={fontLimits.max}
               step="1"
-              value={form.fontSize ?? CONFIG_LIMITS.fontSize.min}
-              oninput={onFontSizeRange}
-              aria-label="フォントサイズ（スライダー）"
-              aria-valuetext={`${form.fontSize ?? '-'} px`}
+              required
+              bind:value={form.fontSize}
+              aria-invalid={!!err('fontSize')}
+              aria-describedby={describedBy('fontSize')}
             />
-            <div class="with-unit narrow">
-              <input
-                id="fontSize"
-                type="number"
-                inputmode="numeric"
-                min={CONFIG_LIMITS.fontSize.min}
-                max={CONFIG_LIMITS.fontSize.max}
-                step="1"
-                required
-                bind:value={form.fontSize}
-                aria-invalid={!!err('fontSize')}
-                aria-describedby={describedBy('fontSize')}
-              />
-              <span class="unit" aria-hidden="true">px</span>
-            </div>
+            <span class="unit" aria-hidden="true">px</span>
           </div>
-          {#if err('fontSize')}<p class="error" id="err-fontSize">{err('fontSize')}</p>{/if}
         </div>
+        {#if err('fontSize')}<p class="error" id="err-fontSize">{err('fontSize')}</p>{/if}
+      </div>
 
-        <div class="row two">
-          <div class="field">
-            <label for="posX">位置 X <output class="mono value" for="posX">{Number(form.x).toFixed(2)}</output></label>
-            <input
-              id="posX"
-              type="range"
-              min={CONFIG_LIMITS.position.min}
-              max={CONFIG_LIMITS.position.max}
-              step="0.01"
-              bind:value={form.x}
-              aria-invalid={!!err('x')}
-              aria-describedby={describedBy('x')}
-            />
-            {#if err('x')}<p class="error" id="err-x">{err('x')}</p>{/if}
-          </div>
-          <div class="field">
-            <label for="posY">位置 Y <output class="mono value" for="posY">{Number(form.y).toFixed(2)}</output></label>
-            <input
-              id="posY"
-              type="range"
-              min={CONFIG_LIMITS.position.min}
-              max={CONFIG_LIMITS.position.max}
-              step="0.01"
-              bind:value={form.y}
-              aria-invalid={!!err('y')}
-              aria-describedby={describedBy('y')}
-            />
-            {#if err('y')}<p class="error" id="err-y">{err('y')}</p>{/if}
-          </div>
-        </div>
-        <div class="field">
-          <label for="dateFormat">日付表示</label>
-          <input id="dateFormat" class="mono" type="text" value="YYYY.MM.DD" readonly aria-describedby="dateFormat-note" />
-          <p class="hint" id="dateFormat-note">初期版では変更できません</p>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>プレビュー</legend>
-        <div class="field">
-          <label for="previewBackground">プレビュー背景</label>
-          <select id="previewBackground" bind:value={background} aria-describedby="previewBackground-note">
-            <option value="checkerboard">市松模様（透過を確認）</option>
-            <option value="black">黒</option>
-          </select>
-          <p class="hint" id="previewBackground-note">画面表示だけの設定です。書き出す動画には影響しません</p>
-        </div>
-      </fieldset>
+      <div class="field">
+        <label for="posX">位置 X <output class="value" for="posX">{Number(form.x).toFixed(2)}</output></label>
+        <input
+          id="posX"
+          type="range"
+          min={posLimits.min}
+          max={posLimits.max}
+          step="0.01"
+          bind:value={form.x}
+          style:--pct={rangeFill(Number(form.x), posLimits.min, posLimits.max)}
+          aria-invalid={!!err('x')}
+          aria-describedby={describedBy('x')}
+        />
+        {#if err('x')}<p class="error" id="err-x">{err('x')}</p>{/if}
+      </div>
+      <div class="field">
+        <label for="posY">位置 Y <output class="value" for="posY">{Number(form.y).toFixed(2)}</output></label>
+        <input
+          id="posY"
+          type="range"
+          min={posLimits.min}
+          max={posLimits.max}
+          step="0.01"
+          bind:value={form.y}
+          style:--pct={rangeFill(Number(form.y), posLimits.min, posLimits.max)}
+          aria-invalid={!!err('y')}
+          aria-describedby={describedBy('y')}
+        />
+        {#if err('y')}<p class="error" id="err-y">{err('y')}</p>{/if}
+      </div>
     </div>
   </details>
 </section>
@@ -286,61 +255,24 @@
 <style>
   .settings {
     display: grid;
-    gap: 0.75rem;
+    gap: 8px;
   }
 
-  fieldset {
-    border: 0;
-    margin: 0;
-    padding: 0;
+  .basic {
     display: grid;
-    gap: 0.75rem;
-    min-width: 0;
-  }
-
-  legend {
-    padding: 0;
-    margin-bottom: 0.5rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-
-  .advanced {
-    border-top: 1px solid var(--rule);
-    padding-top: 0.6rem;
-  }
-
-  summary {
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-
-  .summary-error {
-    font-weight: 400;
-    color: var(--danger);
-  }
-
-  .advanced-body {
-    display: grid;
-    gap: 1.25rem;
-    padding-top: 0.9rem;
-  }
-
-  .row.two {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 7rem;
+    gap: 16px;
+    align-items: start;
   }
 
   .field {
     display: grid;
-    gap: 0.25rem;
+    gap: 4px;
     min-width: 0;
   }
 
   label {
-    font-size: 0.875rem;
+    font-size: 13px;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -348,7 +280,71 @@
 
   .value {
     color: var(--muted);
-    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .error {
+    margin: 0;
+    font-size: 13px;
+    color: var(--danger);
+  }
+
+  .advanced {
+    margin-top: 16px;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    min-height: 32px;
+    list-style: none;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chevron {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    transition: transform 0.15s;
+  }
+
+  .advanced[open] .chevron {
+    transform: rotate(90deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
+  }
+
+  .summary-error {
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--danger);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding-top: 16px;
   }
 
   .with-unit {
@@ -357,28 +353,28 @@
 
   .with-unit input {
     width: 100%;
-    padding-right: 2.2rem;
+    padding-right: 2rem;
   }
 
   .with-unit.narrow {
-    width: 6.5rem;
+    width: 6rem;
     flex: none;
   }
 
   .unit {
     position: absolute;
-    right: 0.6rem;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: 13px;
     pointer-events: none;
   }
 
   .color-row,
   .slider-row {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
     align-items: center;
   }
 
@@ -394,33 +390,24 @@
   }
 
   .swatch {
-    width: 2.5rem;
-    height: 2.25rem;
-    padding: 0.15rem;
+    width: 40px;
+    height: 36px;
+    padding: 2px;
     flex: none;
     cursor: pointer;
   }
 
-  .hint {
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--muted);
-  }
+  @media (max-width: 640px) {
+    .basic {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 
-  .error {
-    margin: 0;
-    font-size: 0.8rem;
-    color: var(--danger);
-  }
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 
-  input[readonly] {
-    color: var(--muted);
-    background: var(--subtle);
-  }
-
-  @media (max-width: 380px) {
-    .row.two {
-      grid-template-columns: minmax(0, 1fr);
+    .font-size {
+      grid-column: 1 / -1;
     }
   }
 </style>

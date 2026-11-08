@@ -64,12 +64,13 @@ test('play advances frames by time and pause holds the frame', async ({ page }) 
   const toggle = page.getByTestId('play-toggle');
   const canvas = page.getByTestId('preview-canvas');
 
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAccessibleName('再生');
+  await page.getByRole('button', { name: '再生' }).click();
+  await expect(toggle).toHaveAccessibleName('停止');
   await expect.poll(async () => Number(await canvas.getAttribute('data-frame'))).toBeGreaterThan(10);
 
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: '停止' }).click();
+  await expect(toggle).toHaveAccessibleName('再生');
   const held = Number(await canvas.getAttribute('data-frame'));
   await page.waitForTimeout(400);
   expect(Number(await canvas.getAttribute('data-frame'))).toBe(held);
@@ -77,16 +78,15 @@ test('play advances frames by time and pause holds the frame', async ({ page }) 
 });
 
 test('playback stops on the end date', async ({ page }) => {
-  await page.getByLabel('動画秒数').fill('1');
+  await page.getByLabel('長さ').fill('1');
   await page.getByTestId('play-toggle').click();
-  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false', { timeout: 5000 });
+  await expect(page.getByTestId('play-toggle')).toHaveAccessibleName('再生', { timeout: 5000 });
   await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
   await expect(page.getByTestId('frame-counter')).toHaveText('29 / 29');
 });
 
 test('checkerboard is CSS only and never drawn into canvas pixels', async ({ page }) => {
-  await openAdvanced(page);
-  await expect(page.getByLabel('プレビュー背景')).toHaveValue('checkerboard');
+  await expect(page.getByRole('radio', { name: '市松' })).toBeChecked();
   const canvas = page.getByTestId('preview-canvas');
 
   const stageBg = await canvas.evaluate((c) => getComputedStyle(c.parentElement!).backgroundImage);
@@ -117,7 +117,7 @@ test('checkerboard is CSS only and never drawn into canvas pixels', async ({ pag
 
   // Switching to black only changes CSS; the pixels are identical.
   const before = await canvasDataUrl(page);
-  await page.getByLabel('プレビュー背景').selectOption('black');
+  await page.getByRole('radio', { name: '黒' }).check();
   expect(await canvas.evaluate((c) => getComputedStyle(c.parentElement!).backgroundColor)).toBe('rgb(0, 0, 0)');
   expect(await canvasDataUrl(page)).toBe(before);
 });
@@ -126,9 +126,9 @@ test('invalid settings show inline errors and disable export', async ({ page }) 
   const exportButton = page.getByTestId('export-button');
   await expect(exportButton).toBeEnabled();
 
-  await page.getByLabel('動画秒数').fill('61');
+  await page.getByLabel('長さ').fill('61');
   await expect(page.locator('#err-durationSeconds')).toBeVisible();
-  await expect(page.getByLabel('動画秒数')).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByLabel('長さ')).toHaveAttribute('aria-invalid', 'true');
   await expect(exportButton).toBeDisabled();
 
   await openAdvanced(page);
@@ -141,7 +141,7 @@ test('invalid settings show inline errors and disable export', async ({ page }) 
   await expect(page.getByLabel('文字色', { exact: true })).toBeHidden();
   await expect(summary).toContainText('エラー 1 件');
 
-  await page.getByLabel('動画秒数').fill('12.5');
+  await page.getByLabel('長さ').fill('12.5');
   await openAdvanced(page);
   await page.getByLabel('文字色', { exact: true }).fill('#00ff88');
   await expect(summary).not.toContainText('エラー');
@@ -152,10 +152,12 @@ test('invalid settings show inline errors and disable export', async ({ page }) 
 test('only the dates and duration are shown until 詳細設定 is opened', async ({ page }) => {
   const details = page.getByTestId('advanced-settings');
   await expect(details).not.toHaveAttribute('open');
-  for (const label of ['開始日', '終了日', '動画秒数']) {
+  for (const label of ['開始日', '終了日', '長さ']) {
     await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   }
-  for (const label of ['FPS', '解像度', '速度曲線', 'フォント', '文字色', 'フォントサイズ', '日付表示', 'プレビュー背景']) {
+  // The preview background toggle lives next to the transport, not in the form.
+  await expect(page.getByRole('radio', { name: '黒' })).toBeVisible();
+  for (const label of ['FPS', '解像度', '速度曲線', 'フォント', '文字色', 'フォントサイズ']) {
     await expect(page.getByLabel(label, { exact: true })).toBeHidden();
   }
 
@@ -166,10 +168,40 @@ test('only the dates and duration are shown until 詳細設定 is opened', async
   await expect(page.getByLabel('FPS', { exact: true })).toBeVisible();
 });
 
-test('date format is fixed and read-only', async ({ page }) => {
-  const format = page.getByLabel('日付表示');
-  await expect(format).toHaveValue('YYYY.MM.DD');
-  await expect(format).toHaveAttribute('readonly', '');
+test('page is titled 日付アニメーション', async ({ page }) => {
+  await expect(page).toHaveTitle('日付アニメーション');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('日付アニメーション');
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /透過MOV（ProRes 4444）/);
+  // No visible subtitle under the title.
+  await expect(page.getByText('開始日から終了日へ日付が切り替わる')).toHaveCount(0);
+});
+
+test('date format is fixed and shown as a note', async ({ page }) => {
+  await expect(page.getByTestId('date-format')).toHaveText('表示形式 YYYY.MM.DD');
+  await expect(page.getByLabel('日付表示')).toHaveCount(0);
+});
+
+test('seek bar works by keyboard and pointer', async ({ page }) => {
+  const seek = page.getByTestId('seek');
+  const frame = page.getByTestId('frame-counter');
+
+  await seek.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(frame).toHaveText('2 / 449');
+  await page.keyboard.press('End');
+  await expect(frame).toHaveText('449 / 449');
+  await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
+  await page.keyboard.press('Home');
+  await expect(frame).toHaveText('0 / 449');
+
+  // Pointer: clicking the middle of the track lands near the middle frame.
+  const box = (await seek.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeGreaterThan(180);
+  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeLessThan(270);
+  // The filled part of the track follows the value.
+  expect(await seek.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--pct'))).toMatch(/^(4|5)\d\.\d+%$/);
 });
 
 test.describe('mobile 375×812', () => {

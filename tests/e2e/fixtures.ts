@@ -153,6 +153,13 @@ export async function openEditor(page: Page): Promise<void> {
   await page.locator('[data-testid="preview-canvas"][data-ready="true"]').waitFor();
 }
 
+/** Open /history and wait for the first list response to render. */
+export async function openHistory(page: Page): Promise<void> {
+  await page.goto('/history');
+  await page.getByRole('heading', { level: 1, name: '書き出し履歴' }).waitFor();
+  await page.locator('section[aria-busy="false"]').waitFor();
+}
+
 /** Expand the collapsed 詳細設定 section (no-op when already open). */
 export async function openAdvanced(page: Page): Promise<void> {
   const details = page.getByTestId('advanced-settings');

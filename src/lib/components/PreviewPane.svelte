@@ -7,14 +7,16 @@
   import type { RenderConfig } from '../renderer/types.ts';
   import type { PreviewBackground } from '../ui/editor-form.ts';
   import { PlaybackClock, formatTime, frameToSeconds, playbackStep } from '../ui/playback.ts';
+  import { rangeFill } from '../ui/range.ts';
 
   interface Props {
     /** Last valid config; the preview never draws an invalid one. */
     config: RenderConfig;
+    /** Preview-only backdrop (CSS); never affects the output. */
     background: PreviewBackground;
   }
 
-  let { config, background }: Props = $props();
+  let { config, background = $bindable() }: Props = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let fontState: 'loading' | 'ready' | 'error' = $state('loading');
@@ -101,7 +103,7 @@
 </script>
 
 <section class="preview" aria-labelledby="preview-title">
-  <h2 id="preview-title" class="section-title">プレビュー</h2>
+  <h2 id="preview-title" class="visually-hidden">プレビュー</h2>
 
   <div class="stage" class:checkerboard={background === 'checkerboard'} class:black={background === 'black'}>
     <canvas
@@ -120,52 +122,61 @@
     {/if}
   </div>
 
-  <div class="readout" aria-live="off">
-    <output class="date mono" data-testid="current-date" aria-label="現在の日付">{currentDate}</output>
-    <dl class="readout-meta">
-      <div>
-        <dt>フレーム</dt>
-        <dd data-testid="frame-counter">{frame} / {totalFrames - 1}</dd>
-      </div>
-      <div>
-        <dt>時刻</dt>
-        <dd data-testid="time-counter">{formatTime(frameToSeconds(frame, config))} / {formatTime(config.durationSeconds)}</dd>
-      </div>
-      <div>
-        <dt>総フレーム</dt>
-        <dd>{totalFrames} @ {config.fps}fps</dd>
-      </div>
-    </dl>
-  </div>
-
   <div class="transport">
     <div class="buttons" role="group" aria-label="再生操作">
-      <button type="button" onclick={goToStart}>先頭へ</button>
-      <button type="button" class="play" onclick={togglePlay} aria-pressed={playing} data-testid="play-toggle">
-        {playing ? '一時停止' : '再生'}
+      <button type="button" class="icon" onclick={goToStart} aria-label="先頭へ" title="先頭へ">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h2v10H3zM13.5 2.5v11L6 8z" /></svg>
       </button>
-      <button type="button" onclick={goToEnd}>末尾へ</button>
+      <button
+        type="button"
+        class="icon play"
+        onclick={togglePlay}
+        aria-label={playing ? '停止' : '再生'}
+        title={playing ? '停止' : '再生'}
+        data-testid="play-toggle"
+      >
+        {#if playing}
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z" /></svg>
+        {:else}
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5v11l9-5.5z" /></svg>
+        {/if}
+      </button>
+      <button type="button" class="icon" onclick={goToEnd} aria-label="末尾へ" title="末尾へ">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 3h2v10h-2zM2.5 2.5v11L10 8z" /></svg>
+      </button>
     </div>
-    <label class="seek">
-      <span class="visually-hidden">シーク（フレーム）</span>
-      <input
-        type="range"
-        min="0"
-        max={totalFrames - 1}
-        step="1"
-        value={frame}
-        oninput={onSeekInput}
-        aria-valuetext={`フレーム ${frame}、${currentDate}`}
-        data-testid="seek"
-      />
-    </label>
+    <input
+      class="seek"
+      type="range"
+      min="0"
+      max={totalFrames - 1}
+      step="1"
+      value={frame}
+      oninput={onSeekInput}
+      style:--pct={rangeFill(frame, 0, totalFrames - 1)}
+      aria-label="シーク（フレーム）"
+      aria-valuetext={`フレーム ${frame}、${currentDate}`}
+      data-testid="seek"
+    />
+    <div class="bg" role="radiogroup" aria-label="プレビュー背景" aria-describedby="bg-note">
+      <span class="bg-label" aria-hidden="true">背景</span>
+      <label><input type="radio" name="preview-bg" value="checkerboard" bind:group={background} />市松</label>
+      <label><input type="radio" name="preview-bg" value="black" bind:group={background} />黒</label>
+      <span id="bg-note" class="visually-hidden">画面表示だけの設定です。書き出す動画には影響しません</span>
+    </div>
   </div>
+
+  <p class="readout" aria-live="off">
+    <span data-testid="current-date">{currentDate}</span>
+    · <span data-testid="frame-counter">{frame} / {totalFrames - 1}</span> フレーム ·
+    <span data-testid="time-counter">{formatTime(frameToSeconds(frame, config))} / {formatTime(config.durationSeconds)}</span>
+  </p>
 </section>
 
 <style>
   .preview {
     display: grid;
-    gap: 0.6rem;
+    gap: 8px;
     min-width: 0;
   }
 
@@ -174,23 +185,22 @@
     aspect-ratio: 16 / 9;
     width: 100%;
     overflow: hidden;
-    border: 1px solid var(--rule);
   }
 
   /* Preview backdrops are CSS only; the canvas itself stays transparent. */
   .stage.checkerboard {
-    background-color: #9aa3ad;
+    background-color: #80858c;
     background-image:
-      linear-gradient(45deg, #6c757f 25%, transparent 25%),
-      linear-gradient(-45deg, #6c757f 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #6c757f 75%),
-      linear-gradient(-45deg, transparent 75%, #6c757f 75%);
-    background-size: 24px 24px;
+      linear-gradient(45deg, #737880 25%, transparent 25%),
+      linear-gradient(-45deg, #737880 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #737880 75%),
+      linear-gradient(-45deg, transparent 75%, #737880 75%);
+    background-size: 32px 32px;
     background-position:
       0 0,
-      0 12px,
-      12px -12px,
-      -12px 0;
+      0 16px,
+      16px -16px,
+      -16px 0;
   }
 
   .stage.black {
@@ -205,79 +215,116 @@
 
   .stage-note {
     position: absolute;
-    left: 0.5rem;
-    bottom: 0.5rem;
+    left: 8px;
+    bottom: 8px;
     margin: 0;
-    padding: 0.2rem 0.5rem;
-    font-size: 0.8rem;
+    padding: 4px 8px;
+    font-size: 13px;
     background: #fff;
-    border: 1px solid var(--rule);
   }
 
   .stage-note.error {
     color: var(--danger);
   }
 
-  .readout {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.25rem 1.5rem;
-  }
-
-  .date {
-    font-size: 1.5rem;
-    line-height: 1.2;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .readout-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem 1rem;
-    margin: 0;
-    font-size: 0.85rem;
-  }
-
-  .readout-meta div {
-    display: flex;
-    gap: 0.4rem;
-  }
-
-  dt {
-    color: var(--muted);
-  }
-
-  dd {
-    margin: 0;
-    font-variant-numeric: tabular-nums;
-  }
-
   .transport {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem 0.75rem;
+    gap: 4px 16px;
   }
 
   .buttons {
     display: flex;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 4px;
     flex: none;
   }
 
-  .play {
-    min-width: 5.5em;
+  .icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--ink);
+  }
+
+  .icon:hover:not(:disabled) {
+    background: var(--hover);
+  }
+
+  .icon svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+
+  .icon.play {
+    width: 36px;
+    height: 36px;
+  }
+
+  .icon.play svg {
+    width: 18px;
+    height: 18px;
   }
 
   .seek {
-    flex: 1;
-    min-width: 10rem;
-    display: flex;
+    flex: 1 1 12rem;
+    min-width: 0;
   }
 
-  .seek input {
+  .bg {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    font-size: 13px;
+  }
+
+  .bg-label {
+    color: var(--muted);
+  }
+
+  .bg label {
+    position: relative;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .bg label:has(input:checked) {
+    background: var(--subtle);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .bg label:has(input:focus-visible) {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  /* The native radio covers its label (keeps keyboard/AT behaviour) but is invisible. */
+  .bg input {
+    position: absolute;
+    inset: 0;
     width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .readout {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
 </style>

@@ -20,94 +20,94 @@
     retrying: boolean;
     /** The job returned 404 while polling and is no longer tracked. */
     unavailable: boolean;
-    /** Whether the inline MP4 preview is shown. */
-    expanded: boolean;
     onRetry: (job: RenderJob) => void;
-    onLoad: (job: RenderJob) => void;
-    onTogglePreview: (job: RenderJob) => void;
   }
 
-  let { job, currentHash, retrying, unavailable, expanded, onRetry, onLoad, onTogglePreview }: Props = $props();
+  let { job, currentHash, retrying, unavailable, onRetry }: Props = $props();
 
-  const progress = $derived(clampProgress(job.status === 'completed' ? 100 : job.progress));
-  const differs = $derived(currentHash !== null && job.configHash !== currentHash);
+  const progress = $derived(clampProgress(job.progress));
+  const isCurrent = $derived(currentHash !== null && job.configHash === currentHash);
   const active = $derived(isActiveJob(job) && !unavailable);
   const assets = $derived(job.status === 'completed' && !job.expired ? job.assets : null);
+  const stage = $derived(job.stage ? STAGE_LABELS[job.stage] : null);
   const titleId = $derived(`job-${job.id}-title`);
-  const videoId = $derived(`job-${job.id}-video`);
-  const detailsId = $derived(`job-${job.id}-details`);
-  let showDetails = $state(false);
+  const panelId = $derived(`job-${job.id}-panel`);
+  let open = $state(false);
 </script>
 
-<li class="job" data-status={job.status} data-testid="job-item" data-job-id={job.id} aria-labelledby={titleId}>
+<li
+  class="job"
+  class:muted-row={job.expired}
+  data-status={job.status}
+  data-testid="job-item"
+  data-job-id={job.id}
+  aria-labelledby={titleId}
+>
   <div class="row">
     <div class="main">
       <p class="title" id={titleId}>{summarizeRange(job.config)}</p>
-      <p class="sub">
+      <p class="meta">
         <time datetime={job.createdAt} title={formatTimestamp(job.createdAt)}>{formatShortTimestamp(job.createdAt)}</time>
-        {#if differs}{' · '}<span data-testid="job-differs">現在の設定とは異なる</span>{/if}
+        {#if isCurrent}{' · '}<span data-testid="job-current">今の設定</span>{/if}
+        {#if job.expired}
+          {' · '}<span data-testid="job-expired">期限切れ</span>
+        {:else if job.status === 'failed'}
+          {' · '}<span class="failed"
+            ><span data-testid="job-status">{STATUS_LABELS.failed}</span>：{job.error?.message ?? '書き出しに失敗しました。'}</span
+          >
+        {:else if unavailable}
+          {' · '}<span data-testid="job-unavailable">情報を取得できません（削除された可能性があります）</span>
+        {:else if active}
+          {' · '}<span class="progress-group">
+            <span data-testid="job-status" class:visually-hidden={job.status === 'running' && stage}
+              >{STATUS_LABELS[job.status]}</span
+            >
+            {#if job.status === 'running' && stage}<span data-testid="job-stage">{stage}</span>{/if}
+            {#if job.status === 'running'}
+              <progress
+                max="100"
+                value={progress}
+                aria-label="進捗"
+                aria-valuetext={`${progress}%${stage ? `、${stage}` : ''}`}
+              ></progress>
+              <span class="pct">{progress}%</span>
+            {/if}
+          </span>
+        {/if}
       </p>
     </div>
-
-    <p class="state">
-      {#if job.expired}
-        <span class="muted" data-testid="job-expired">期限切れ</span>
-      {:else}
-        <span class:failed={job.status === 'failed'} data-testid="job-status">{STATUS_LABELS[job.status]}</span>
-      {/if}
-      {#if active}
-        <span>{progress}%</span>
-        {#if job.stage}<span class="muted" data-testid="job-stage">{STAGE_LABELS[job.stage]}</span>{/if}
-      {/if}
-    </p>
 
     {#if !active}
       <div class="actions">
         {#if assets}
-          <button type="button" onclick={() => onTogglePreview(job)} aria-expanded={expanded} aria-controls={videoId}>
-            プレビュー
-          </button>
-          <a href={assets.mp4.downloadUrl} download data-testid="download-mp4">MP4</a>
-          <a href={assets.mov.downloadUrl} download data-testid="download-mov">MOV</a>
+          <a class="primary-link" href={assets.mov.downloadUrl} download data-testid="download-mov">
+            MOV {formatBytes(assets.mov.bytes)}
+          </a>
+          <a class="secondary-link" href={assets.mp4.downloadUrl} download data-testid="download-mp4">
+            MP4 {formatBytes(assets.mp4.bytes)}
+          </a>
         {:else if job.status === 'failed'}
-          <button type="button" onclick={() => onRetry(job)} disabled={retrying}>
+          <button type="button" class="text strong" onclick={() => onRetry(job)} disabled={retrying}>
             {retrying ? '再試行中…' : '再試行'}
           </button>
         {/if}
         <button
           type="button"
           class="text"
-          onclick={() => (showDetails = !showDetails)}
-          aria-expanded={showDetails}
-          aria-controls={detailsId}
+          onclick={() => (open = !open)}
+          aria-expanded={open}
+          aria-controls={panelId}
           data-testid="job-details-toggle"
         >
-          詳細
+          確認
         </button>
       </div>
     {/if}
   </div>
 
-  {#if active}
-    <progress
-      max="100"
-      value={progress}
-      aria-label="進捗"
-      aria-valuetext={`${progress}%${job.stage ? `、${STAGE_LABELS[job.stage]}` : ''}`}
-    ></progress>
-  {/if}
-
-  {#if job.status === 'failed'}
-    <p class="reason" role="status">{job.error?.message ?? '書き出しに失敗しました。'}</p>
-  {/if}
-
-  {#if unavailable}
-    <p class="note" data-testid="job-unavailable">このジョブの情報を取得できなくなりました。削除された可能性があります。</p>
-  {/if}
-
-  {#if assets}
-    <div id={videoId} hidden={!expanded}>
-      {#if expanded}
+  {#if open && !active}
+    <div class="panel" id={panelId} data-testid="job-details">
+      {#if assets}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
           controls
@@ -118,168 +118,173 @@
           data-testid="job-video"
         ></video>
       {/if}
-    </div>
-  {/if}
-
-  {#if !active && showDetails}
-    <div class="more" id={detailsId} data-testid="job-details">
-      <dl>
-        <div><dt>出力</dt><dd>{summarizeOutput(job.config)}</dd></div>
-        <div><dt>文字</dt><dd>{summarizeStyle(job.config)}</dd></div>
-        <div><dt>作成</dt><dd>{formatTimestamp(job.createdAt)}</dd></div>
-        {#if job.status === 'failed' && job.stage}
-          <div><dt>停止した段階</dt><dd>{STAGE_LABELS[job.stage]}</dd></div>
-        {/if}
-        {#if assets}
-          <div><dt>サイズ</dt><dd>MP4 {formatBytes(assets.mp4.bytes)} · MOV {formatBytes(assets.mov.bytes)}</dd></div>
-        {:else if job.expired}
-          <div><dt>ファイル</dt><dd>保存期間が過ぎたため削除されました</dd></div>
-        {/if}
-      </dl>
-      <button type="button" onclick={() => onLoad(job)}>エディターに読み込む</button>
+      <p class="settings-line">
+        {summarizeOutput(job.config)} · {summarizeStyle(job.config)}
+        {#if job.status === 'failed' && stage}· 停止した段階：{stage}{/if}
+        {#if job.expired}· 保存期間が過ぎたためファイルは削除されました{/if}
+      </p>
+      <a class="load" href={`/?from=${encodeURIComponent(job.id)}`}>エディターに読み込む</a>
     </div>
   {/if}
 </li>
 
 <style>
+  /* Rows are separated by rhythm only; a faint tint on hover, nothing at rest. */
   .job {
     list-style: none;
     display: grid;
-    gap: 0.4rem;
-    padding: 0.6rem 0;
-    border-top: 1px solid var(--rule);
+    gap: 8px;
+    padding: 8px;
+    margin: 0 -8px;
+    border-radius: 4px;
     min-width: 0;
   }
 
-  /* Columns line up across rows: identity | state | actions. */
+  .job:hover {
+    background: var(--row-hover);
+  }
+
   .row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 11rem 15rem;
-    grid-template-areas: 'main state actions';
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.25rem 1rem;
+    justify-content: space-between;
+    gap: 4px 16px;
   }
 
   .main {
-    grid-area: main;
+    flex: 1 1 18rem;
     min-width: 0;
   }
 
   .title {
     margin: 0;
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
 
-  .sub {
-    margin: 0;
-    font-size: 0.8rem;
+  .muted-row .title {
     color: var(--muted);
   }
 
-  .state {
-    grid-area: state;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 0.4rem;
+  .meta {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
 
   .failed {
     color: var(--danger);
   }
 
-  .muted {
-    color: var(--muted);
+  .progress-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  /* Compact inline indicator, same look as the seek bar. */
+  progress {
+    width: 88px;
+    height: 4px;
+    appearance: none;
+    border: 0;
+    border-radius: 2px;
+    background: var(--track);
+    overflow: hidden;
+  }
+
+  progress::-webkit-progress-bar {
+    background: var(--track);
+  }
+
+  progress::-webkit-progress-value {
+    background: var(--ink);
+  }
+
+  progress::-moz-progress-bar {
+    background: var(--ink);
+  }
+
+  .pct {
+    color: var(--ink);
   }
 
   .actions {
-    grid-area: actions;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    font-size: 0.875rem;
+    gap: 16px;
+    margin-left: auto;
+    font-size: 13px;
   }
 
-  @container job-list (max-width: 40rem) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas:
-        'main main'
-        'state actions';
-    }
+  .actions a {
+    text-decoration: none;
   }
 
-  .text {
-    min-height: auto;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--muted);
+  .actions a:hover {
     text-decoration: underline;
   }
 
-  .text:hover:not(:disabled) {
-    background: none;
-    color: var(--text);
+  .primary-link {
+    color: var(--ink);
+    font-weight: 600;
   }
 
-  progress {
-    width: 100%;
-    height: 0.4rem;
-  }
-
-  .reason {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--danger);
-    overflow-wrap: anywhere;
-  }
-
-  .note {
-    margin: 0;
-    font-size: 0.8rem;
+  .secondary-link {
     color: var(--muted);
+  }
+
+  .strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .panel {
+    display: grid;
+    gap: 8px;
+    justify-items: start;
   }
 
   video {
     display: block;
     width: 100%;
-    max-width: 36rem;
     aspect-ratio: 16 / 9;
     background: #000;
   }
 
-  .more {
-    padding: 0.5rem 0.75rem;
+  .load {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 4px 16px;
+    border-radius: 4px;
+    background: var(--field);
+    color: var(--ink);
+    font-size: 13px;
+    text-decoration: none;
+  }
+
+  .load:hover {
     background: var(--subtle);
-    font-size: 0.8rem;
-    color: var(--muted);
   }
 
-  .more dl {
-    display: grid;
-    gap: 0.15rem;
-    margin: 0 0 0.5rem;
-  }
-
-  .more dl div {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .more dt {
-    flex: none;
-    width: 6rem;
-  }
-
-  .more dd {
+  .settings-line {
     margin: 0;
-    color: var(--text);
+    font-size: 13px;
+    color: var(--muted);
     overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 767px) {
+    .actions a {
+      padding: 10px 4px;
+    }
   }
 </style>

@@ -8,7 +8,7 @@ export default defineConfig({
     compatibility_date: '2026-02-24',
   },
   head: {
-    title: 'Date Countdown Studio',
+    title: '日付アニメーション',
     htmlAttrs: { lang: 'ja' },
     meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
   },
