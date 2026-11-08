@@ -31,8 +31,8 @@ export async function enqueueRender(jobId: string): Promise<boolean> {
 }
 
 /** poll メッセージを遅延送信する。失敗は例外のまま返す（consumer がメッセージを再配信させる / cron が再送する） */
-export async function enqueuePoll(jobId: string, delaySeconds: number): Promise<void> {
-  await queues.render.send({ type: 'poll', jobId }, { delaySeconds });
+export async function enqueuePoll(jobId: string, delaySeconds: number, launchedAt?: string): Promise<void> {
+  await queues.render.send(launchedAt ? { type: 'poll', jobId, launchedAt } : { type: 'poll', jobId }, { delaySeconds });
 }
 
 async function decide(ownerId: string, configHash: string, idempotencyKey: string | null, now: Date) {

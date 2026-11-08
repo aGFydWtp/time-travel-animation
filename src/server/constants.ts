@@ -32,8 +32,11 @@ export const MAX_REQUEST_BODY_BYTES = 16 * 1024;
 export const POLL_DELAY_SECONDS = 10;
 /** 直前の poll からこれ未満なら別の poll 連鎖が生きているとみなし、この連鎖を止める（重複連鎖の収束） */
 export const MIN_POLL_GAP_MS = 5_000;
-/** progress.json が一度も現れないまま、起動からこれを過ぎたらコンテナが失われたとみなす */
-export const START_GRACE_MS = 3 * 60 * 1000;
+/**
+ * progress.json が一度も現れないまま、起動（launch() 完了。不明なら claim 時刻）からこれを過ぎたら
+ * コンテナが失われたとみなす。render-entry は起動直後に progress.json を書く
+ */
+export const START_GRACE_MS = 5 * 60 * 1000;
 /** progress.json の updatedAt（コンテナのハートビート）がこれより古ければ止まったとみなす */
 export const HEARTBEAT_STALE_MS = 3 * 60 * 1000;
 /** started_at からの全体上限 */

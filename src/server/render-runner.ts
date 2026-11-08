@@ -46,6 +46,8 @@ export const CONTAINER_CONTRACT = {
  * nohup（+ あれば setsid）で親の sh が終わっても走り続け、PID を返す。
  */
 const LAUNCH_SCRIPT = [
+  // 起動は 1 回だけ（同じコンテナでの再試行で 2 本目が同じ出力先に書かないように）。mkdir は原子的
+  'mkdir "$3.lock" 2>/dev/null || { echo already-launched; exit 0; }',
   'S=""',
   'command -v setsid >/dev/null 2>&1 && S=setsid',
   'nohup $S node "$1" --config "$2" --out "$3" >"$4" 2>&1 </dev/null &',
@@ -133,12 +135,17 @@ export const sandboxBackend: RenderBackend = {
       signal: AbortSignal.timeout(LAUNCH_TIMEOUT_MS),
     });
     const stdout = decoder.decode(out.stdout).trim();
+    if (out.exitCode === 0 && stdout === 'already-launched') {
+      logEvent('render.process_already_started', { jobId });
+      return;
+    }
     if (out.exitCode !== 0 || !/^\d+$/.test(stdout)) {
       throw new Error(`launch failed: exit ${out.exitCode} ${decoder.decode(out.stderr).slice(-300)}`);
     }
     logEvent('render.process_started', { jobId, pid: Number(stdout) });
   },
 
+  // 受容したリスク: 止まった後の getSandbox + ファイル操作は空のコンテナを起動しうる（poll は running の間だけ呼ぶ）
   async readStatus(jobId: string): Promise<SandboxStatus> {
     const p = paths(jobId);
     const sandbox = await openSandbox(jobId);

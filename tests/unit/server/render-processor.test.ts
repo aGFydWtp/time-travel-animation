@@ -36,7 +36,7 @@ function setup() {
   const store = new FakeJobStore();
   let clock = T0;
   let status: SandboxStatus = running();
-  const polls: { jobId: string; delay: number }[] = [];
+  const polls: { jobId: string; delay: number; launchedAt?: string }[] = [];
   const deleted: string[] = [];
   const log = vi.fn();
   const backend = {
@@ -50,8 +50,8 @@ function setup() {
     getJob: async (id) => store.find(id),
     claim: (id, patch) => store.claim(id, patch),
     update: (id, patch, opts) => store.updateIf(id, 'running', patch, opts),
-    enqueuePoll: vi.fn(async (jobId: string, delay: number) => {
-      polls.push({ jobId, delay });
+    enqueuePoll: vi.fn(async (jobId: string, delay: number, launchedAt?: string) => {
+      polls.push({ jobId, delay, ...(launchedAt ? { launchedAt } : {}) });
     }),
     backend,
     deleteObjects: vi.fn(async (keys: string[]) => {
@@ -73,6 +73,11 @@ function setup() {
   };
 }
 
+const job0Id = '00000000-0000-4000-8000-0000000000aa';
+/** claim 済み（T0）で running の行 */
+const job0 = () =>
+  makeJob({ id: job0Id, status: 'running', stage: 'starting', startedAt: iso(0), updatedAt: iso(0), attempt: 1 });
+
 /** start を処理し、10 秒後の poll を投げられる状態にする */
 async function started() {
   const t = setup();
@@ -86,7 +91,7 @@ describe('processStartMessage', () => {
     const { store, backend, polls, job } = await started();
     expect(backend.launch).toHaveBeenCalledTimes(1);
     expect(backend.launch.mock.calls[0]![0]).toBe(job.id);
-    expect(polls).toEqual([{ jobId: job.id, delay: 10 }]);
+    expect(polls).toEqual([{ jobId: job.id, delay: 10, launchedAt: T0.toISOString() }]);
     expect(store.get(job.id)).toMatchObject({ status: 'running', stage: 'starting', attempt: 1, startedAt: T0.toISOString() });
   });
 
@@ -132,6 +137,8 @@ describe('processStartMessage', () => {
     expect(await processStartMessage(deps, job.id)).toEqual({ type: 'retry', delaySeconds: 60 });
     expect(store.get(job.id)).toMatchObject({ status: 'queued', stage: 'queued', attempt: 0, startedAt: null });
     expect(polls).toHaveLength(0);
+    // 上限エラーでも起動済みかもしれない render-entry を止めてから差し戻す
+    expect(backend.destroy).toHaveBeenCalledWith(job.id);
 
     // 再配信で再び claim できる
     expect(await processStartMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'started' });
@@ -260,24 +267,83 @@ describe('processPollMessage', () => {
     expect(store.get(job.id)).toMatchObject({ status: 'failed', errorCode: 'stalled' });
   });
 
-  it('fails as container_lost when progress.json never appears after the start grace', async () => {
+  it('fails as container_lost when progress.json never appears within 5 min of the launch', async () => {
     const { store, deps, polls, setClock, job } = await started();
-    setClock(2 * MIN);
-    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'polling' });
+    const launchedAt = polls[0]!.launchedAt;
     setClock(4 * MIN);
-    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'failed' });
+    expect(await processPollMessage(deps, job.id, launchedAt)).toEqual({ type: 'ack', reason: 'polling' });
+    expect(polls[1]!.launchedAt).toBe(launchedAt); // 連鎖に引き継ぐ
+    setClock(5 * MIN + SEC);
+    expect(await processPollMessage(deps, job.id, launchedAt)).toEqual({ type: 'ack', reason: 'failed' });
     expect(store.get(job.id)).toMatchObject({ status: 'failed', errorCode: 'container_lost' });
     expect(polls).toHaveLength(2);
   });
 
-  it('keeps polling without writing on a transient read error', async () => {
+  it('measures the start grace from the launch, not from the claim (slow cold start)', async () => {
+    const { store, deps, setClock } = setup();
+    store.add(job0());
+    // claim は T0、launch() が戻ったのは 4 分後
+    const launchedAt = iso(4 * MIN);
+    setClock(8 * MIN);
+    expect(await processPollMessage(deps, job0Id, launchedAt)).toEqual({ type: 'ack', reason: 'polling' });
+    setClock(9 * MIN + SEC);
+    expect(await processPollMessage(deps, job0Id, launchedAt)).toEqual({ type: 'ack', reason: 'failed' });
+    expect(store.get(job0Id).errorCode).toBe('container_lost');
+  });
+
+  it('keeps polling on a transient read error and refreshes updated_at with a CAS', async () => {
     const { store, deps, backend, polls, setClock, job } = await started();
-    const before = store.get(job.id).updatedAt;
     setClock(30 * SEC);
     backend.readStatus.mockRejectedValueOnce(new Error('sandbox rpc reset'));
     expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'polling' });
-    expect(store.get(job.id)).toMatchObject({ status: 'running', updatedAt: before });
+    expect(store.get(job.id)).toMatchObject({ status: 'running', updatedAt: iso(30 * SEC) });
     expect(polls).toHaveLength(2);
+  });
+
+  it('collapses a duplicate chain on the transient path too (CAS on updated_at)', async () => {
+    const { store, deps, backend, polls, setClock, job } = await started();
+    setClock(30 * SEC);
+    backend.readStatus.mockImplementationOnce(async () => {
+      store.get(job.id).updatedAt = iso(29 * SEC); // 別連鎖が直前に書いた
+      throw new Error('sandbox rpc reset');
+    });
+    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'duplicate_chain' });
+    expect(polls).toHaveLength(1);
+  });
+
+  it('does not fail (or destroy) a job whose upload another poll took meanwhile', async () => {
+    const { store, deps, backend, setClock, setStatus, job } = await started();
+    setClock(10 * MIN);
+    setStatus(running({ progress: beat(6 * MIN) })); // このpollの読みでは stalled
+    backend.readStatus.mockImplementationOnce(async () => {
+      Object.assign(store.get(job.id), { stage: 'uploading', updatedAt: iso(10 * MIN - SEC) });
+      return running({ progress: beat(6 * MIN) });
+    });
+    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'lost_race' });
+    expect(store.get(job.id)).toMatchObject({ status: 'running', stage: 'uploading' });
+    expect(backend.destroy).not.toHaveBeenCalled();
+  });
+
+  it('leaves objects and sandbox alone when its upload lease was taken over before the upload failed', async () => {
+    const { store, deps, backend, deleted, setClock, setStatus, job } = await started();
+    setClock(20 * SEC);
+    setStatus(running({ result: okResult }));
+    backend.upload.mockImplementationOnce(async () => {
+      store.get(job.id).updatedAt = iso(13 * MIN); // リース切れで別の poll が引き継いだ
+      throw new Error('R2 500');
+    });
+    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'lost_race' });
+    expect(store.get(job.id).status).toBe('running');
+    expect(deleted).toHaveLength(0);
+    expect(backend.destroy).not.toHaveBeenCalled();
+  });
+
+  it('uploads a finished render even when it is polled after the 2-hour cap', async () => {
+    const { store, deps, setClock, setStatus, job } = await started();
+    setClock(2 * 60 * MIN + 5 * MIN);
+    setStatus(running({ result: okResult }));
+    expect(await processPollMessage(deps, job.id)).toEqual({ type: 'ack', reason: 'completed' });
+    expect(store.get(job.id).status).toBe('completed');
   });
 
   it('fails as upload_failed and deletes partial objects when the upload throws', async () => {
@@ -359,6 +425,16 @@ describe('decidePoll', () => {
       kind: 'fail',
       code: 'timeout',
     });
+  });
+
+  it('applies the 2-hour cap only while there is no result', () => {
+    const late = 2 * 60 * MIN + MIN;
+    expect(decide(late, running({ result: okResult })).kind).toBe('upload');
+    expect(decide(late, running({ result: { kind: 'ok', value: { ok: false, errorCode: 'VERIFY_FAILED' } } }))).toMatchObject({
+      kind: 'fail',
+      code: 'verification_failed',
+    });
+    expect(decide(late, running({ result: { kind: 'error', detail: 'x' } }))).toMatchObject({ kind: 'fail', code: 'timeout' });
   });
 
   it('uploads only on result ok:true; malformed results are invalid_output', () => {

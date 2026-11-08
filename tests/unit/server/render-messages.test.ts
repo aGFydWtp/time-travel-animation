@@ -9,6 +9,13 @@ describe('parseRenderMessage', () => {
     expect(parseRenderMessage({ type: 'poll', jobId: ID.toUpperCase() })).toEqual({ type: 'poll', jobId: ID });
   });
 
+  it('carries a valid launchedAt on poll messages and drops an invalid one', () => {
+    const launchedAt = '2026-11-08T01:00:00.000Z';
+    expect(parseRenderMessage({ type: 'poll', jobId: ID, launchedAt })).toEqual({ type: 'poll', jobId: ID, launchedAt });
+    expect(parseRenderMessage({ type: 'poll', jobId: ID, launchedAt: 'yesterday' })).toEqual({ type: 'poll', jobId: ID });
+    expect(parseRenderMessage({ type: 'poll', jobId: ID, launchedAt: 123 })).toEqual({ type: 'poll', jobId: ID });
+  });
+
   it('treats the legacy { jobId } message as start', () => {
     expect(parseRenderMessage({ jobId: ID })).toEqual({ type: 'start', jobId: ID });
   });

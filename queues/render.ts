@@ -22,7 +22,7 @@ const deps = (): ProcessorDeps => ({
   getJob: (id) => getJob(id),
   claim: (id, patch) => claimQueuedJob(id, patch),
   update: (id, patch, opts) => updateJobIfStatus(id, 'running', patch, opts),
-  enqueuePoll: (id, delaySeconds) => enqueuePoll(id, delaySeconds),
+  enqueuePoll: (id, delaySeconds, launchedAt) => enqueuePoll(id, delaySeconds, launchedAt),
   backend: sandboxBackend,
   deleteObjects: (keys) => storage.delete(keys),
   isUsageLimit: isUsageLimitError,
@@ -41,7 +41,7 @@ export default defineQueue<RenderMessage>(async (batch) => {
       const action =
         parsed.type === 'start'
           ? await processStartMessage(deps(), parsed.jobId)
-          : await processPollMessage(deps(), parsed.jobId);
+          : await processPollMessage(deps(), parsed.jobId, parsed.launchedAt);
       if (action.type === 'retry') msg.retry({ delaySeconds: action.delaySeconds });
       else msg.ack();
     } catch (err) {

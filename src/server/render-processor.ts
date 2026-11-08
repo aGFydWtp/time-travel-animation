@@ -83,7 +83,7 @@ export interface ProcessorDeps {
     opts?: { decrementAttempt?: boolean; expectUpdatedAt?: string },
   ): Promise<boolean>;
   /** poll メッセージを遅延送信する。失敗したら例外（呼び出し元のメッセージが再配信される） */
-  enqueuePoll(jobId: string, delaySeconds: number): Promise<void>;
+  enqueuePoll(jobId: string, delaySeconds: number, launchedAt?: string): Promise<void>;
   backend: RenderBackend;
   deleteObjects(keys: string[]): Promise<void>;
   /** Sandbox の同時実行・実行時間予算の上限エラーか（void/limits の UsageLimit） */
@@ -154,17 +154,26 @@ export function precheckPoll(row: Pick<JobRow, 'status' | 'stage' | 'updatedAt'>
 export type PollDecision =
   | { kind: 'fail'; code: string; detail?: string }
   | { kind: 'upload'; result: ContainerResult }
-  /** 読み取りの一時的な失敗。何も書かずに poll を続ける（続けば cron の stale 判定で failed になる） */
+  /**
+   * 読み取りの一時的な失敗。updated_at だけ CAS で進めて poll を続ける（重複連鎖はここでも収束させる）。
+   * 失敗が続く場合の上限は MAX_RENDER_MS（updated_at が進むので stale 判定には掛からない）
+   */
   | { kind: 'transient'; detail: string }
   | { kind: 'progress'; patch: ReturnType<typeof progressPatch> | ReturnType<typeof touchPatch> };
 
-export function decidePoll(input: { startedAt: string; now: Date; status: SandboxStatus }): PollDecision {
+export function decidePoll(input: {
+  startedAt: string;
+  /** launch() が戻った時刻。progress.json 待ちの猶予の起点（無ければ startedAt） */
+  launchedAt?: string;
+  now: Date;
+  status: SandboxStatus;
+}): PollDecision {
   const { now, status } = input;
   const elapsed = now.getTime() - ms(input.startedAt);
-  if (!(elapsed <= MAX_RENDER_MS)) return { kind: 'fail', code: 'timeout', detail: `elapsed ${elapsed}ms` };
+  const sinceLaunch = input.launchedAt ? now.getTime() - ms(input.launchedAt) : elapsed;
 
+  // 結果が出ていれば上限時間を過ぎていても採用する（完成した描画を timeout にしない）
   const { result, progress } = status;
-  if (result.kind === 'error') return { kind: 'transient', detail: `result.json: ${result.detail}` };
   if (result.kind === 'ok') {
     if (result.value.ok === true) return { kind: 'upload', result: result.value };
     if (result.value.ok === false) {
@@ -173,14 +182,17 @@ export function decidePoll(input: { startedAt: string; now: Date; status: Sandbo
     }
     return { kind: 'fail', code: 'invalid_output', detail: 'result.json without boolean ok' };
   }
+  if (!(elapsed <= MAX_RENDER_MS)) return { kind: 'fail', code: 'timeout', detail: `elapsed ${elapsed}ms` };
+  if (result.kind === 'error') return { kind: 'transient', detail: `result.json: ${result.detail}` };
 
   if (progress.kind === 'error') return { kind: 'transient', detail: `progress.json: ${progress.detail}` };
   if (progress.kind === 'missing') {
     // 起動直後はまだ無い。猶予を過ぎても無い = コンテナが入れ替わってファイルが消えた
-    return elapsed > START_GRACE_MS
+    return sinceLaunch > START_GRACE_MS
       ? { kind: 'fail', code: 'container_lost', detail: 'progress.json missing' }
       : { kind: 'progress', patch: touchPatch(now) };
   }
+  // 受容したリスク: コンテナと Worker の時計のずれは HEARTBEAT_STALE_MS（3 分）の余裕で吸収する前提
   const heartbeat = typeof progress.value.updatedAt === 'string' ? Date.parse(progress.value.updatedAt) : Number.NaN;
   const sinceHeartbeat = Number.isFinite(heartbeat) ? now.getTime() - heartbeat : elapsed;
   if (sinceHeartbeat > HEARTBEAT_STALE_MS) {
@@ -224,9 +236,15 @@ function helpers(deps: ProcessorDeps, jobId: string) {
       log('render.sandbox_destroy_failed', { jobId, error: errorSummary(err) });
     });
   };
-  const fail = async (code: string, startedAt: string | null, detail?: string): Promise<MessageAction> => {
+  /** expectUpdatedAt: poll 側では読んだ updated_at の CAS を掛ける（別の poll がアップロード担当を取っていたら失敗させない） */
+  const fail = async (
+    code: string,
+    startedAt: string | null,
+    detail?: string,
+    expectUpdatedAt?: string,
+  ): Promise<MessageAction> => {
     const patch = failedPatch(code, deps.now());
-    const updated = await deps.update(jobId, patch);
+    const updated = await deps.update(jobId, patch, expectUpdatedAt === undefined ? undefined : { expectUpdatedAt });
     log('render.failed', {
       jobId,
       errorCode: patch.errorCode,
@@ -267,6 +285,8 @@ export async function processStartMessage(deps: ProcessorDeps, jobId: string): P
     await deps.backend.launch(jobId, config);
   } catch (err) {
     if (deps.isUsageLimit(err)) {
+      // 上限エラーでも render-entry が起動済みの可能性がある。再試行で 2 本目が同じ出力先に書かないよう止めておく
+      await destroy();
       const requeued = await deps.update(jobId, requeuePatch(deps.now()), { decrementAttempt: true });
       log('render.requeued_usage_limit', {
         jobId,
@@ -282,14 +302,19 @@ export async function processStartMessage(deps: ProcessorDeps, jobId: string): P
     return action;
   }
 
+  const launchedAt = deps.now().toISOString();
   await deps.update(jobId, progressPatch('starting', 1, deps.now()));
   // 送れなければ例外 → この start が再配信され、claim 済みなので poll だけ送り直す
-  await deps.enqueuePoll(jobId, POLL_DELAY_SECONDS);
+  await deps.enqueuePoll(jobId, POLL_DELAY_SECONDS, launchedAt);
   log('render.launched', { jobId });
   return { type: 'ack', reason: 'started' };
 }
 
-export async function processPollMessage(deps: ProcessorDeps, jobId: string): Promise<MessageAction> {
+export async function processPollMessage(
+  deps: ProcessorDeps,
+  jobId: string,
+  launchedAt?: string,
+): Promise<MessageAction> {
   const { log, destroy, fail } = helpers(deps, jobId);
   const row = await deps.getJob(jobId);
   const pre = precheckPoll(row, deps.now());
@@ -305,24 +330,23 @@ export async function processPollMessage(deps: ProcessorDeps, jobId: string): Pr
   } catch (err) {
     status = { progress: { kind: 'error', detail: errorSummary(err) }, result: { kind: 'error', detail: errorSummary(err) } };
   }
-  const decision = decidePoll({ startedAt, now: deps.now(), status });
+  const decision = decidePoll({ startedAt, launchedAt, now: deps.now(), status });
 
   switch (decision.kind) {
-    case 'transient': {
-      log('render.poll_transient', { jobId, detail: decision.detail.slice(0, 300) });
-      await deps.enqueuePoll(jobId, POLL_DELAY_SECONDS);
-      return { type: 'ack', reason: 'polling' };
-    }
+    case 'transient':
     case 'progress': {
+      if (decision.kind === 'transient') log('render.poll_transient', { jobId, detail: decision.detail.slice(0, 300) });
+      const patch = decision.kind === 'progress' ? decision.patch : touchPatch(deps.now());
       // updated_at の CAS: 同時に走った別の poll が先に書いたら、こちらの連鎖は止める
-      const ok = await deps.update(jobId, decision.patch, { expectUpdatedAt: row.updatedAt });
+      const ok = await deps.update(jobId, patch, { expectUpdatedAt: row.updatedAt });
       if (!ok) return { type: 'ack', reason: 'duplicate_chain' };
-      await deps.enqueuePoll(jobId, POLL_DELAY_SECONDS);
+      await deps.enqueuePoll(jobId, POLL_DELAY_SECONDS, launchedAt);
       return { type: 'ack', reason: 'polling' };
     }
     case 'fail': {
-      const action = await fail(decision.code, startedAt, decision.detail);
-      await destroy();
+      const action = await fail(decision.code, startedAt, decision.detail, row.updatedAt);
+      // CAS に負けた（別の poll がアップロード担当を取った等）なら Sandbox を止めない
+      if (action.type === 'ack' && action.reason === 'failed') await destroy();
       return action;
     }
     case 'upload':
@@ -340,15 +364,16 @@ async function uploadAndComplete(
   const { log, destroy, fail } = helpers(deps, jobId);
 
   // アップロード担当は 1 つの poll だけ（読んだ updated_at の CAS）
-  const claimed = await deps.update(jobId, uploadClaimPatch(UPLOADING_PROGRESS, deps.now()), {
-    expectUpdatedAt: row.updatedAt,
-  });
+  const claimPatchValue = uploadClaimPatch(UPLOADING_PROGRESS, deps.now());
+  const claimed = await deps.update(jobId, claimPatchValue, { expectUpdatedAt: row.updatedAt });
   if (!claimed) return { type: 'ack', reason: 'duplicate_chain' };
+  // 以降の failed は「自分がまだ担当（updated_at が claim 時のまま）」のときだけ（リース切れで引き継がれていたら触らない）
+  const leaseAt = claimPatchValue.updatedAt;
 
   const config = parseStoredConfig(row);
   if (!config) {
-    const action = await fail('invalid_config', startedAt);
-    await destroy();
+    const action = await fail('invalid_config', startedAt, undefined, leaseAt);
+    if (action.type === 'ack' && action.reason === 'failed') await destroy();
     return action;
   }
   const keys = await assetKeys(row.ownerId, row.id);
@@ -372,10 +397,12 @@ async function uploadAndComplete(
   } catch (err) {
     const timedOut = err instanceof DeadlineError;
     log('render.upload_failed', { jobId, timedOut, error: errorSummary(err) });
-    const action = await fail(timedOut ? 'timeout' : 'upload_failed', startedAt, errorSummary(err));
-    // failed にできたときだけ消す（他の poll が completed にした成果物は消さない）
-    if (action.type === 'ack' && action.reason === 'failed') await deleteKeys('upload_failed');
-    await destroy();
+    const action = await fail(timedOut ? 'timeout' : 'upload_failed', startedAt, errorSummary(err), leaseAt);
+    // failed にできたときだけ消して止める（引き継いだ poll の成果物・Sandbox には触らない）
+    if (action.type === 'ack' && action.reason === 'failed') {
+      await deleteKeys('upload_failed');
+      await destroy();
+    }
     return action;
   }
 
