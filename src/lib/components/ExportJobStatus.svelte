@@ -36,7 +36,7 @@
     {/if}
   {:else}
     <span class="failed">失敗：{job.error?.message ?? '書き出しに失敗しました。'}</span>
-    <button type="button" class="text" onclick={() => onRetry(job)} disabled={retrying}>
+    <button type="button" class="btn-outline" onclick={() => onRetry(job)} disabled={retrying}>
       {retrying ? '書き出し中…' : 'もう一度書き出す'}
     </button>
   {/if}
@@ -47,7 +47,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0 16px;
+    gap: 8px 12px;
     margin: 0;
     font-size: 13px;
     color: var(--muted);
@@ -96,10 +96,5 @@
     color: var(--danger);
   }
 
-  .text {
-    min-height: 32px;
-    padding: 0;
-    color: var(--ink);
-    font-size: 13px;
-  }
+
 </style>

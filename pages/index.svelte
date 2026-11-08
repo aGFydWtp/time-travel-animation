@@ -174,7 +174,8 @@
 
   .primary {
     min-height: 40px;
-    padding: 8px 24px;
+    padding: 0 20px;
+    border-radius: 9999px;
     background: var(--ink);
     color: #fff;
     font-size: 15px;

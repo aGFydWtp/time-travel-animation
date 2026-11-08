@@ -54,7 +54,7 @@
     flex: none;
     width: 36px;
     height: 36px;
-    border-radius: 6px;
+    border-radius: 50%;
     color: var(--ink);
   }
 

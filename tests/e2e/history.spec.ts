@@ -93,7 +93,7 @@ test('この設定をエディターで開く opens the editor with that job’s
   await item.getByRole('link', { name: 'この設定をエディターで開く' }).click();
   await expect(page).toHaveURL(/\/\?from=job-done$/);
   await expect(page.getByLabel('FPS', { exact: true })).toHaveValue('24');
-  await expect(page.getByLabel('終了日')).toHaveValue('2023-07-01');
+  await expect(page.getByLabel('終了日')).toHaveValue('2023/07/01');
 });
 
 test('expired job shows 期限切れ and no downloads', async ({ page }) => {

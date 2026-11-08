@@ -79,7 +79,7 @@
       {#if assets}
         <DownloadLinks mov={assets.mov} mp4={assets.mp4} />
       {:else if job.status === 'failed'}
-        <button type="button" class="action strong" onclick={() => onRetry(job)} disabled={retrying}>
+        <button type="button" class="btn-outline" onclick={() => onRetry(job)} disabled={retrying}>
           {retrying ? '書き出し中…' : 'もう一度書き出す'}
         </button>
       {/if}
@@ -201,24 +201,30 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0 20px;
+    gap: 8px 12px;
+    margin-top: 8px;
     font-size: 13px;
   }
 
+  /* Quiet pill: no fill at rest, a tint on hover (darker than the card). */
   .action {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    min-height: 32px;
-    padding: 0;
+    min-height: 36px;
+    padding: 0 12px;
     background: none;
     color: var(--ink);
     font-size: 13px;
   }
 
   .action:hover:not(:disabled) {
-    background: none;
-    text-decoration: underline;
+    background: var(--subtle);
+  }
+
+  /* When a quiet pill leads the row, align its text with the lines above. */
+  .action:first-child {
+    margin-left: -12px;
   }
 
   .icon {
@@ -237,11 +243,6 @@
       flex-direction: column;
       align-items: flex-start;
     }
-  }
-
-  .strong {
-    color: var(--ink);
-    font-weight: 600;
   }
 
   .panel {
@@ -267,20 +268,20 @@
     overflow-wrap: anywhere;
   }
 
-  /* White on the grey card so it still reads as a button. */
+  /* Quiet pill like 再生して確認; text aligned with the lines above it. */
   .load {
     display: inline-flex;
     align-items: center;
-    min-height: 32px;
-    padding: 4px 16px;
-    border-radius: 4px;
-    background: #fff;
+    min-height: 36px;
+    padding: 0 12px;
+    margin-left: -12px;
+    border-radius: 9999px;
     color: var(--ink);
     font-size: 13px;
     text-decoration: none;
   }
 
   .load:hover {
-    background: var(--hover);
+    background: var(--subtle);
   }
 </style>

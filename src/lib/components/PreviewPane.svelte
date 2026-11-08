@@ -222,7 +222,7 @@
     min-height: 32px;
     padding: 0;
     border: 0;
-    border-radius: 4px;
+    border-radius: 50%;
     background: none;
     color: var(--ink);
   }

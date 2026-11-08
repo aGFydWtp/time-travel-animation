@@ -133,9 +133,9 @@ test('/?from=<id> loads that job into the editor; a missing job is reported', as
   await expect(page.getByTestId('export-notice')).toHaveText('設定を読み込みました');
   await expect(page.getByLabel('FPS', { exact: true })).toHaveValue('24');
   await expect(page.getByLabel('文字色', { exact: true })).toHaveValue('#00FF00');
-  await expect(page.getByLabel('終了日')).toHaveValue('2023-07-01');
+  await expect(page.getByLabel('終了日')).toHaveValue('2023/07/01');
 
   await page.goto('/?from=job-missing');
   await expect(page.getByTestId('export-notice')).toHaveText('指定された書き出しが見つかりませんでした');
-  await expect(page.getByLabel('終了日')).toHaveValue('2020-01-01');
+  await expect(page.getByLabel('終了日')).toHaveValue('2020/01/01');
 });

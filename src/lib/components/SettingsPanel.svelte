@@ -3,6 +3,7 @@
   import { FONTS, FONT_IDS } from '../renderer/fonts.ts';
   import { RESOLUTION_OPTIONS, normalizeHex, type EditorForm, type FormField } from '../ui/editor-form.ts';
   import { rangeFill } from '../ui/range.ts';
+  import DateField from './DateField.svelte';
 
   interface Props {
     form: EditorForm;
@@ -55,29 +56,21 @@
   <div class="basic">
     <div class="field">
       <label for="startDate">開始日</label>
-      <input
+      <DateField
         id="startDate"
-        type="date"
-        min="1000-01-01"
-        max="9999-12-31"
-        required
         bind:value={form.startDate}
-        aria-invalid={!!err('startDate')}
-        aria-describedby={describedBy('startDate')}
+        invalid={!!err('startDate')}
+        describedBy={describedBy('startDate')}
       />
       {#if err('startDate')}<p class="error" id="err-startDate">{err('startDate')}</p>{/if}
     </div>
     <div class="field">
       <label for="endDate">終了日</label>
-      <input
+      <DateField
         id="endDate"
-        type="date"
-        min="1000-01-01"
-        max="9999-12-31"
-        required
         bind:value={form.endDate}
-        aria-invalid={!!err('endDate')}
-        aria-describedby={describedBy('endDate')}
+        invalid={!!err('endDate')}
+        describedBy={describedBy('endDate')}
       />
       {#if err('endDate')}<p class="error" id="err-endDate">{err('endDate')}</p>{/if}
     </div>

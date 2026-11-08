@@ -56,7 +56,7 @@ test('seek 0% shows the start date and 100% shows the end date', async ({ page }
   await expect(page.getByTestId('time-counter')).toHaveText('00:00.00 / 00:15.00');
 
   // Date changes follow the start/end inputs immediately.
-  await page.getByLabel('開始日').fill('2024-02-29');
+  await page.getByLabel('開始日').fill('2024/02/29');
   await expect(date).toHaveText('2024.02.29');
 });
 
@@ -166,6 +166,41 @@ test('page is titled 日付アニメーション', async ({ page }) => {
   await expect(page.getByText('開始日から終了日へ日付が切り替わる')).toHaveCount(0);
 });
 
+test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }) => {
+  const start = page.getByLabel('開始日');
+  await expect(start).toHaveValue('2026/03/06');
+  await expect(page.getByLabel('終了日')).toHaveValue('2020/01/01');
+
+  await start.fill('2020/02/29');
+  await expect(page.getByTestId('current-date')).toHaveText('2020.02.29');
+
+  // Other separators and bare digits are normalised.
+  await start.fill('');
+  await start.pressSequentially('20240115');
+  await expect(start).toHaveValue('2024/01/15');
+  await start.fill('2023-7-4');
+  await start.blur();
+  await expect(start).toHaveValue('2023/07/04');
+  await expect(page.getByTestId('current-date')).toHaveText('2023.07.04');
+
+  // Non-existent date → inline error, export disabled.
+  await start.fill('2021/02/29');
+  await expect(page.locator('#err-startDate')).toBeVisible();
+  await expect(start).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByTestId('export-button')).toBeDisabled();
+
+  // The calendar button drives a hidden native picker; a picked date is written back.
+  await expect(page.getByRole('button', { name: 'カレンダーから選ぶ' })).toHaveCount(2);
+  await start.locator('xpath=..').locator('input[type="date"]').evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = '2025-12-24';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(start).toHaveValue('2025/12/24');
+  await expect(page.locator('#err-startDate')).toHaveCount(0);
+  await expect(page.getByTestId('export-button')).toBeEnabled();
+});
+
 test('date format is fixed and shown as a note', async ({ page }) => {
   await expect(page.getByTestId('date-format')).toHaveText('表示形式 YYYY.MM.DD');
   await expect(page.getByLabel('日付表示')).toHaveCount(0);
@@ -210,7 +245,7 @@ test.describe('mobile 375×812', () => {
     await page.getByRole('button', { name: '末尾へ' }).click();
     await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
 
-    await page.getByLabel('終了日').fill('2021-06-15');
+    await page.getByLabel('終了日').fill('20210615');
     await expect(page.getByTestId('current-date')).toHaveText('2021.06.15');
 
     await page.getByTestId('export-button').scrollIntoViewIfNeeded();

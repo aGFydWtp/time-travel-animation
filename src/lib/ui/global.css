@@ -87,7 +87,7 @@ button {
   padding: 4px 16px;
   background: var(--field);
   border: 0;
-  border-radius: 4px;
+  border-radius: 9999px; /* every button is a pill */
   cursor: pointer;
   font-size: 13px;
 }
@@ -101,22 +101,41 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Quiet text-only button (更新, 確認, 再試行). */
+/* Quiet text button (更新): no fill at rest, a pill tint on hover. */
 button.text {
   min-height: 32px;
-  padding: 4px;
+  padding: 4px 12px;
   background: none;
   color: var(--muted);
 }
 
 button.text:hover:not(:disabled) {
-  background: none;
+  background: var(--hover);
   color: var(--ink);
-  text-decoration: underline;
 }
 
 a {
   color: var(--ink);
+}
+
+/* Outlined pill (downloads, もう一度書き出す). Buttons are the one place a border is used. */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--ink);
+  border-radius: 9999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--field);
 }
 
 :focus-visible {
@@ -222,7 +241,7 @@ input[type='range']:focus-visible::-moz-range-thumb {
   }
 
   button.text {
-    padding: 10px 4px;
+    padding: 10px 12px;
   }
 }
 

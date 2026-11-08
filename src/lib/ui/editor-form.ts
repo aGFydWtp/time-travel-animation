@@ -66,8 +66,8 @@ export function formToConfigInput(form: EditorForm): Record<string, unknown> {
 
 /** Japanese inline messages per field (Zod messages are developer-facing English). */
 export const FIELD_MESSAGES: Record<FormField, string> = {
-  startDate: '1000-01-01〜9999-12-31 の実在する日付を入力してください',
-  endDate: '1000-01-01〜9999-12-31 の実在する日付を入力してください',
+  startDate: '1000/01/01〜9999/12/31 の実在する日付を YYYY/MM/DD で入力してください',
+  endDate: '1000/01/01〜9999/12/31 の実在する日付を YYYY/MM/DD で入力してください',
   durationSeconds: '1〜60 秒の範囲で、0.1 秒刻みで入力してください',
   fps: '24 / 30 / 60 から選んでください',
   resolution: '1280×720 または 1920×1080 を選んでください',
