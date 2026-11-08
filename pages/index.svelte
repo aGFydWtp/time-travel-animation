@@ -15,7 +15,15 @@
     formToConfigInput,
     type PreviewBackground,
   } from '../src/lib/ui/editor-form.ts';
-  import { POLL_MIN_MS, isActiveJob, jobChanged, mergeJobs, nextPollDelay } from '../src/lib/ui/poll.ts';
+  import { IdempotencyKeys, isTerminalCreateError } from '../src/lib/ui/idempotency.ts';
+  import {
+    POLL_MIN_MS,
+    classifyPollFailure,
+    isActiveJob,
+    jobChanged,
+    mergeJobs,
+    nextPollDelay,
+  } from '../src/lib/ui/poll.ts';
 
   let { title }: Props = $props();
 
@@ -52,6 +60,7 @@
   // ---- export ----------------------------------------------------------
   let exporting = $state(false);
   let notice: { kind: 'ok' | 'error'; text: string } | null = $state(null);
+  const idempotencyKeys = new IdempotencyKeys();
 
   async function startExport() {
     if (!parsed.success || exporting) return;
@@ -59,7 +68,16 @@
     exporting = true;
     notice = null;
     try {
-      const res = await api.createRender(config, crypto.randomUUID());
+      // Same config resubmitted after a lost response → same key, so the server dedupes it.
+      const key = idempotencyKeys.keyFor(await hashConfig(config));
+      let res;
+      try {
+        res = await api.createRender(config, key);
+        idempotencyKeys.settle();
+      } catch (error) {
+        if (isTerminalCreateError(error)) idempotencyKeys.settle();
+        throw error;
+      }
       notice = {
         kind: 'ok',
         text: res.reused
@@ -87,6 +105,11 @@
   let loadingMore = $state(false);
   let listError: string | null = $state(null);
   let retryingIds: ReadonlySet<string> = $state(new Set());
+  /** Jobs that returned 404 while polling; they are no longer polled. */
+  let unavailableIds: ReadonlySet<string> = $state(new Set());
+  /** Set when polling got 401/403; polling stays stopped until a list refresh succeeds. */
+  let authLost = $state(false);
+  const AUTH_LOST_MESSAGE = 'ログインの有効期限が切れた可能性があります。ページを再読み込みして、もう一度サインインしてください。';
 
   let pollDelay = POLL_MIN_MS;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -101,6 +124,7 @@
       // Keep a deeper cursor if the user already paged further.
       if (nextCursor === null || jobs.length <= page.items.length) nextCursor = page.nextCursor;
       listError = null;
+      authLost = false;
     } catch (error) {
       listError = `書き出し履歴を取得できませんでした。${describeApiError(error)}`;
     } finally {
@@ -118,7 +142,7 @@
       nextCursor = page.nextCursor;
       listError = null;
     } catch (error) {
-      listError = `続きを取得できませんでした。${describeApiError(error)}`;
+      if (!authLost) listError = `続きを取得できませんでした。${describeApiError(error)}`;
     } finally {
       loadingMore = false;
     }
@@ -157,9 +181,14 @@
     schedulePoll();
   }
 
+  /** Active jobs that can still be polled (not 404'd). */
+  function pollableJobs(): RenderJob[] {
+    return jobs.filter((job) => isActiveJob(job) && !unavailableIds.has(job.id));
+  }
+
   function schedulePoll() {
     clearTimeout(pollTimer);
-    if (disposed || polling || !jobs.some(isActiveJob)) return;
+    if (disposed || polling || authLost || pollableJobs().length === 0) return;
     pollTimer = setTimeout(pollOnce, pollDelay);
   }
 
@@ -168,19 +197,34 @@
     let changed = false;
     let finished = false;
     try {
-      const active = jobs.filter(isActiveJob);
+      const active = pollableJobs();
       const results = await Promise.allSettled(active.map((j) => api.getRender(j.id)));
       const fresh: RenderJob[] = [];
+      const gone: string[] = [];
       results.forEach((result, i) => {
-        if (result.status !== 'fulfilled') return;
         const before = active[i];
+        if (result.status === 'rejected') {
+          const failure = classifyPollFailure(result.reason);
+          if (failure === 'auth') authLost = true;
+          else if (failure === 'gone' && before) gone.push(before.id);
+          return;
+        }
         if (jobChanged(before, result.value)) changed = true;
         if (!isActiveJob(result.value)) finished = true;
         fresh.push(result.value);
       });
       if (fresh.length > 0) jobs = mergeJobs(jobs, fresh);
+      if (gone.length > 0) {
+        unavailableIds = new Set([...unavailableIds, ...gone]);
+        changed = true;
+      }
     } finally {
       polling = false;
+    }
+    if (authLost) {
+      clearTimeout(pollTimer);
+      listError = AUTH_LOST_MESSAGE;
+      return;
     }
     pollDelay = nextPollDelay(pollDelay, changed);
     if (finished) {
@@ -201,9 +245,9 @@
 </script>
 
 <div class="app">
-  <header class="masthead">
+  <header class="header">
     <h1>{title}</h1>
-    <p class="tagline">日付が流れるカウントダウン動画を作って、透過 MOV と確認用 MP4 で書き出します。</p>
+    <p class="lead">日付が流れるカウントダウン動画を作成し、透過 MOV と確認用 MP4 で書き出します。</p>
   </header>
 
   <main class="workspace">
@@ -211,7 +255,7 @@
       <PreviewPane config={previewConfig} {background} />
     </div>
 
-    <div class="area-settings panel">
+    <div class="area-settings">
       <SettingsPanel bind:form bind:background {errors} />
     </div>
 
@@ -232,7 +276,7 @@
           {#if errorCount > 0}
             <p class="error">入力内容に {errorCount} 件のエラーがあります。修正すると書き出せます。</p>
           {:else if notice}
-            <p class={notice.kind === 'error' ? 'error' : 'ok'} data-testid="export-notice">{notice.text}</p>
+            <p class:error={notice.kind === 'error'} data-testid="export-notice">{notice.text}</p>
           {:else}
             <p class="muted">
               {previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒 をクラウドで書き出します
@@ -251,6 +295,7 @@
         hasMore={nextCursor !== null}
         error={listError}
         {retryingIds}
+        {unavailableIds}
         onRetry={retry}
         onLoad={loadIntoEditor}
         onLoadMore={loadMore}
@@ -262,21 +307,17 @@
 
 <style>
   :global(:root) {
-    color-scheme: dark;
-    --bg: #12161c;
-    --surface: #181d24;
-    --surface-2: #1f262f;
-    --rule: #2c3540;
-    --text: #e6e9ed;
-    --text-dim: #b3bcc6;
-    --muted: #8691a0;
-    --tally: #ffb547;
-    --on-tally: #1a1206;
-    --ok: #74d3a0;
-    --danger: #ff7a6b;
-    --focus: #8fc1ff;
-    --font-ui: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
-    --font-data: 'DCS JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    color-scheme: light;
+    --bg: #ffffff;
+    --text: #1f1f1f;
+    --muted: #616161;
+    --rule: #d4d4d4;
+    --field-border: #a8a8a8;
+    --subtle: #f5f5f5;
+    --accent: #1a5fb4;
+    --danger: #b42318;
+    --font-ui: system-ui, -apple-system, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Segoe UI', sans-serif;
+    --font-data: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   }
 
   :global(*),
@@ -292,7 +333,6 @@
     font-family: var(--font-ui);
     font-size: 15px;
     line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
   }
 
   :global(.mono) {
@@ -313,16 +353,13 @@
 
   :global(.section-title) {
     margin: 0;
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 600;
-    letter-spacing: 0.16em;
-    color: var(--text-dim);
   }
 
   :global(input),
   :global(select),
-  :global(button),
-  :global(a.button) {
+  :global(button) {
     font: inherit;
     color: inherit;
   }
@@ -330,18 +367,18 @@
   :global(input:not([type='range']):not([type='color'])),
   :global(select) {
     width: 100%;
-    min-height: 2.5rem;
-    padding: 0.45rem 0.65rem;
-    background: var(--surface-2);
-    border: 1px solid var(--rule);
-    border-radius: 5px;
-    font-size: 0.92rem;
+    min-height: 2.25rem;
+    padding: 0.3rem 0.5rem;
+    background: #fff;
+    border: 1px solid var(--field-border);
+    border-radius: 3px;
+    font-size: 0.9rem;
   }
 
   :global(input[type='color']) {
-    background: var(--surface-2);
-    border: 1px solid var(--rule);
-    border-radius: 5px;
+    background: #fff;
+    border: 1px solid var(--field-border);
+    border-radius: 3px;
   }
 
   :global(input[aria-invalid='true']),
@@ -350,91 +387,66 @@
   }
 
   :global(input[type='range']) {
-    accent-color: var(--tally);
-    min-height: 2rem;
+    accent-color: var(--accent);
+    min-height: 1.75rem;
   }
 
-  :global(button),
-  :global(a.button) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    min-height: 2.5rem;
-    padding: 0.45rem 0.95rem;
-    background: var(--surface-2);
-    border: 1px solid var(--rule);
-    border-radius: 5px;
+  :global(button) {
+    min-height: 2.25rem;
+    padding: 0.3rem 0.85rem;
+    background: #fff;
+    border: 1px solid var(--field-border);
+    border-radius: 3px;
     cursor: pointer;
-    text-decoration: none;
-    font-size: 0.88rem;
+    font-size: 0.875rem;
   }
 
-  :global(button:hover:not(:disabled)),
-  :global(a.button:hover) {
-    border-color: var(--muted);
+  :global(button:hover:not(:disabled)) {
+    background: var(--subtle);
   }
 
   :global(button:disabled) {
-    opacity: 0.45;
+    opacity: 0.5;
     cursor: not-allowed;
   }
 
-  :global(button.ghost) {
-    background: transparent;
-  }
-
-  :global(button.small) {
-    min-height: 2.1rem;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.8rem;
+  :global(a) {
+    color: var(--accent);
   }
 
   :global(:focus-visible) {
-    outline: 2px solid var(--focus);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    :global(*) {
-      scroll-behavior: auto !important;
-    }
-  }
-
   .app {
-    max-width: 1440px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 1.5rem clamp(1rem, 3vw, 2.5rem) 3rem;
+    padding: 1rem clamp(1rem, 3vw, 2rem) 2.5rem;
   }
 
-  .masthead {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.4rem 1.25rem;
-    padding-bottom: 1.25rem;
-    margin-bottom: 1.5rem;
+  .header {
+    padding-bottom: 0.75rem;
+    margin-bottom: 1.25rem;
     border-bottom: 1px solid var(--rule);
   }
 
   h1 {
     margin: 0;
-    font-family: var(--font-data);
-    font-weight: 400;
-    font-size: 1.15rem;
-    letter-spacing: 0.04em;
+    font-size: 1.25rem;
+    font-weight: 600;
   }
 
-  .tagline {
-    margin: 0;
+  .lead {
+    margin: 0.2rem 0 0;
     color: var(--muted);
-    font-size: 0.84rem;
+    font-size: 0.875rem;
   }
 
   /* Mobile: preview first, then settings, export, history. */
   .workspace {
     display: grid;
-    gap: 1.75rem;
+    gap: 1.5rem;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'preview'
@@ -463,32 +475,24 @@
     min-width: 0;
   }
 
-  .panel {
-    padding: 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--rule);
-    border-radius: 8px;
-  }
-
   .export-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem 1rem;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
   }
 
   .primary {
-    background: var(--tally);
-    border-color: var(--tally);
-    color: var(--on-tally);
-    font-weight: 600;
-    min-height: 2.9rem;
-    padding: 0.55rem 1.4rem;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
   }
 
   .primary:hover:not(:disabled) {
-    border-color: var(--tally);
-    filter: brightness(1.08);
+    background: #164f96;
   }
 
   .export-status {
@@ -498,15 +502,11 @@
 
   .export-status p {
     margin: 0;
-    font-size: 0.84rem;
+    font-size: 0.875rem;
   }
 
   .export-status .error {
     color: var(--danger);
-  }
-
-  .export-status .ok {
-    color: var(--ok);
   }
 
   .export-status .muted {
@@ -516,14 +516,14 @@
   /* Desktop: settings left (sticky), preview / export / history right. */
   @media (min-width: 960px) {
     .workspace {
-      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
       grid-template-rows: auto auto 1fr;
       grid-template-areas:
         'settings preview'
         'settings export'
         'settings jobs';
       column-gap: 2rem;
-      row-gap: 1.5rem;
+      row-gap: 1.25rem;
       align-items: start;
     }
 
@@ -532,6 +532,8 @@
       top: 1rem;
       max-height: calc(100vh - 2rem);
       overflow-y: auto;
+      padding-right: 1.5rem;
+      border-right: 1px solid var(--rule);
     }
   }
 </style>

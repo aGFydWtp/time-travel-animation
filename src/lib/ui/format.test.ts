@@ -1,18 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../renderer/types.ts';
-import { clampProgress, formatBytes, formatTimestamp, summarizeConfig, summarizeStyle } from './format.ts';
+import {
+  clampProgress,
+  formatBytes,
+  formatShortTimestamp,
+  formatTimestamp,
+  summarizeOutput,
+  summarizeRange,
+  summarizeStyle,
+} from './format.ts';
 
-describe('summarizeConfig', () => {
+describe('summarizeRange / summarizeOutput', () => {
   it('summarizes the default config', () => {
-    expect(summarizeConfig(DEFAULT_CONFIG)).toBe(
-      '2026.03.06 → 2020.01.01 · 15秒 · 30fps · 1920×1080 · smootherstep',
-    );
+    expect(summarizeRange(DEFAULT_CONFIG)).toBe('2026.03.06 → 2020.01.01 · 15秒');
+    expect(summarizeOutput(DEFAULT_CONFIG)).toBe('1920×1080 · 30fps · smootherstep');
   });
 
   it('keeps tenth-second durations', () => {
-    expect(summarizeConfig({ ...DEFAULT_CONFIG, durationSeconds: 2.5, fps: 24, width: 1280, height: 720 })).toContain(
-      '2.5秒 · 24fps · 1280×720',
-    );
+    expect(summarizeRange({ ...DEFAULT_CONFIG, durationSeconds: 2.5 })).toContain('· 2.5秒');
+    expect(summarizeOutput({ ...DEFAULT_CONFIG, fps: 24, width: 1280, height: 720 })).toBe('1280×720 · 24fps · smootherstep');
+  });
+});
+
+describe('formatShortTimestamp', () => {
+  const now = new Date('2026-11-08T12:00:00.000Z');
+  it('drops the year within the current year', () => {
+    expect(formatShortTimestamp('2026-11-08T15:04:00.000Z', now, 'UTC')).toBe('11/08 15:04');
+  });
+
+  it('shows only the date for other years and passes through bad input', () => {
+    expect(formatShortTimestamp('2025-02-01T15:04:00.000Z', now, 'UTC')).toBe('2025/02/01');
+    expect(formatShortTimestamp('nope', now, 'UTC')).toBe('nope');
   });
 });
 

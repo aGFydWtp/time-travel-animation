@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { ApiError } from '../api/client.ts';
 import type { RenderJob } from '../api/types.ts';
 import { DEFAULT_CONFIG } from '../renderer/types.ts';
-import { POLL_MAX_MS, POLL_MIN_MS, isActiveJob, jobChanged, mergeJobs, nextPollDelay } from './poll.ts';
+import {
+  POLL_MAX_MS,
+  POLL_MIN_MS,
+  classifyPollFailure,
+  isActiveJob,
+  jobChanged,
+  mergeJobs,
+  nextPollDelay,
+} from './poll.ts';
 
 function job(overrides: Partial<RenderJob> = {}): RenderJob {
   return {
@@ -77,5 +86,23 @@ describe('mergeJobs', () => {
     const merged = mergeJobs([mid, old], [updatedMid, fresh]);
     expect(merged.map((j) => j.id)).toEqual(['c', 'b', 'a']);
     expect(merged[1]?.status).toBe('running');
+  });
+});
+
+describe('classifyPollFailure', () => {
+  it('stops everything on 401/403', () => {
+    expect(classifyPollFailure(new ApiError(401, 'unauthorized', 'x'))).toBe('auth');
+    expect(classifyPollFailure(new ApiError(403, 'forbidden', 'x'))).toBe('auth');
+  });
+
+  it('drops the job on 404', () => {
+    expect(classifyPollFailure(new ApiError(404, 'not_found', 'x'))).toBe('gone');
+  });
+
+  it('keeps polling on network/server/unknown errors', () => {
+    expect(classifyPollFailure(new ApiError(0, 'network', 'x'))).toBe('transient');
+    expect(classifyPollFailure(new ApiError(500, 'internal', 'x'))).toBe('transient');
+    expect(classifyPollFailure(new ApiError(429, 'rate_limited', 'x'))).toBe('transient');
+    expect(classifyPollFailure(new Error('boom'))).toBe('transient');
   });
 });

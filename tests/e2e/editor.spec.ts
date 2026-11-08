@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { canvasDataUrl, mockApi, openEditor } from './fixtures.ts';
+import { canvasDataUrl, mockApi, openAdvanced, openEditor } from './fixtures.ts';
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page);
@@ -13,6 +13,7 @@ test('canvas uses the output resolution and redraws on settings change', async (
 
   const before = await canvasDataUrl(page);
 
+  await openAdvanced(page);
   await page.getByLabel('文字色', { exact: true }).fill('#FF0000');
   await expect.poll(() => canvasDataUrl(page)).not.toBe(before);
 
@@ -84,6 +85,7 @@ test('playback stops on the end date', async ({ page }) => {
 });
 
 test('checkerboard is CSS only and never drawn into canvas pixels', async ({ page }) => {
+  await openAdvanced(page);
   await expect(page.getByLabel('プレビュー背景')).toHaveValue('checkerboard');
   const canvas = page.getByTestId('preview-canvas');
 
@@ -129,13 +131,39 @@ test('invalid settings show inline errors and disable export', async ({ page }) 
   await expect(page.getByLabel('動画秒数')).toHaveAttribute('aria-invalid', 'true');
   await expect(exportButton).toBeDisabled();
 
+  await openAdvanced(page);
   await page.getByLabel('文字色', { exact: true }).fill('nothex');
   await expect(page.locator('#err-color')).toBeVisible();
 
+  // Collapsing 詳細設定 keeps an error note next to its summary.
+  const summary = page.getByTestId('advanced-settings').locator('summary');
+  await summary.click();
+  await expect(page.getByLabel('文字色', { exact: true })).toBeHidden();
+  await expect(summary).toContainText('エラー 1 件');
+
   await page.getByLabel('動画秒数').fill('12.5');
+  await openAdvanced(page);
   await page.getByLabel('文字色', { exact: true }).fill('#00ff88');
+  await expect(summary).not.toContainText('エラー');
   await expect(exportButton).toBeEnabled();
   await expect(page.locator('#err-durationSeconds')).toHaveCount(0);
+});
+
+test('only the dates and duration are shown until 詳細設定 is opened', async ({ page }) => {
+  const details = page.getByTestId('advanced-settings');
+  await expect(details).not.toHaveAttribute('open');
+  for (const label of ['開始日', '終了日', '動画秒数']) {
+    await expect(page.getByLabel(label, { exact: true })).toBeVisible();
+  }
+  for (const label of ['FPS', '解像度', '速度曲線', 'フォント', '文字色', 'フォントサイズ', '日付表示', 'プレビュー背景']) {
+    await expect(page.getByLabel(label, { exact: true })).toBeHidden();
+  }
+
+  // Keyboard: focus the summary and toggle with Enter.
+  await details.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(details).toHaveAttribute('open');
+  await expect(page.getByLabel('FPS', { exact: true })).toBeVisible();
 });
 
 test('date format is fixed and read-only', async ({ page }) => {

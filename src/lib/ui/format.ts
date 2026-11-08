@@ -12,15 +12,14 @@ function displayDate(iso: string): string {
   }
 }
 
-/** One-line config summary, e.g. `2026.03.06 → 2020.01.01 · 15秒 · 30fps · 1920×1080 · smootherstep`. */
-export function summarizeConfig(config: RenderConfig): string {
-  return [
-    `${displayDate(config.startDate)} → ${displayDate(config.endDate)}`,
-    `${config.durationSeconds}秒`,
-    `${config.fps}fps`,
-    `${config.width}×${config.height}`,
-    config.easing,
-  ].join(' · ');
+/** The job's identity in the history list, e.g. `2026.03.06 → 2020.01.01 · 15秒`. */
+export function summarizeRange(config: RenderConfig): string {
+  return `${displayDate(config.startDate)} → ${displayDate(config.endDate)} · ${config.durationSeconds}秒`;
+}
+
+/** Output settings, e.g. `1920×1080 · 30fps · smootherstep`. */
+export function summarizeOutput(config: RenderConfig): string {
+  return [`${config.width}×${config.height}`, `${config.fps}fps`, config.easing].join(' · ');
 }
 
 /** Secondary details: font, size, colour, position. */
@@ -49,6 +48,16 @@ export function formatTimestamp(iso: string, timeZone?: string): string {
   }).formatToParts(date);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('year')}/${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+/** Compact time for list rows: `MM/DD HH:mm`, or `YYYY/MM/DD` outside the current year. */
+export function formatShortTimestamp(iso: string, now: Date = new Date(), timeZone?: string): string {
+  const full = formatTimestamp(iso, timeZone);
+  if (full === iso) return iso;
+  const [day = '', time = ''] = full.split(' ');
+  const [year, month, date] = day.split('/');
+  const currentYear = formatTimestamp(now.toISOString(), timeZone).slice(0, 4);
+  return year === currentYear ? `${month}/${date} ${time}` : day;
 }
 
 /** Human-readable byte size (binary units). */

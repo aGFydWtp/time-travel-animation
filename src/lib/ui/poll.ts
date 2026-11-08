@@ -1,4 +1,5 @@
 // Job polling cadence (design.md: 2s, exponential backoff up to 10s).
+import { ApiError } from '../api/client.ts';
 import type { RenderJob } from '../api/types.ts';
 
 export const POLL_MIN_MS = 2000;
@@ -37,4 +38,19 @@ export function mergeJobs(existing: readonly RenderJob[], incoming: readonly Ren
     if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
+}
+
+/**
+ * How to react when polling a job fails:
+ * - `auth`: 401/403, the session is gone; stop polling until the user reloads.
+ * - `gone`: 404, the job no longer exists; stop polling that job only.
+ * - `transient`: network/5xx/anything else; keep polling with backoff.
+ */
+export type PollFailure = 'auth' | 'gone' | 'transient';
+
+export function classifyPollFailure(error: unknown): PollFailure {
+  if (!(error instanceof ApiError)) return 'transient';
+  if (error.status === 401 || error.status === 403) return 'auth';
+  if (error.status === 404) return 'gone';
+  return 'transient';
 }

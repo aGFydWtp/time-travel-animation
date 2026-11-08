@@ -24,7 +24,6 @@
   const totalFrames = $derived(getTotalFrames(config));
   const frame = $derived(clampFrameIndex(rawFrame, totalFrames));
   const currentDate = $derived(getDateAtFrame(frame, config));
-  const progressPct = $derived(totalFrames > 1 ? (frame / (totalFrames - 1)) * 100 : 100);
 
   const clock = new PlaybackClock(() => performance.now());
   let rafId = 0;
@@ -119,15 +118,11 @@
     {:else if fontState === 'error'}
       <p class="stage-note error" role="alert">フォントを読み込めませんでした。ページを再読み込みしてください。</p>
     {/if}
-    <div class="playhead" style:width={`${progressPct}%`} aria-hidden="true"></div>
   </div>
 
   <div class="readout" aria-live="off">
-    <div class="readout-date">
-      <span class="readout-label">現在の日付</span>
-      <output class="date mono" data-testid="current-date">{currentDate}</output>
-    </div>
-    <dl class="readout-meta mono">
+    <output class="date mono" data-testid="current-date" aria-label="現在の日付">{currentDate}</output>
+    <dl class="readout-meta">
       <div>
         <dt>フレーム</dt>
         <dd data-testid="frame-counter">{frame} / {totalFrames - 1}</dd>
@@ -145,27 +140,11 @@
 
   <div class="transport">
     <div class="buttons" role="group" aria-label="再生操作">
-      <button type="button" class="icon" onclick={goToStart} aria-label="先頭へ" title="先頭へ">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z" /></svg>
+      <button type="button" onclick={goToStart}>先頭へ</button>
+      <button type="button" class="play" onclick={togglePlay} aria-pressed={playing} data-testid="play-toggle">
+        {playing ? '一時停止' : '再生'}
       </button>
-      <button
-        type="button"
-        class="icon play"
-        onclick={togglePlay}
-        aria-label={playing ? '一時停止' : '再生'}
-        aria-pressed={playing}
-        title={playing ? '一時停止' : '再生'}
-        data-testid="play-toggle"
-      >
-        {#if playing}
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
-        {:else}
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L19.5 12z" /></svg>
-        {/if}
-      </button>
-      <button type="button" class="icon" onclick={goToEnd} aria-label="末尾へ" title="末尾へ">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z" /></svg>
-      </button>
+      <button type="button" onclick={goToEnd}>末尾へ</button>
     </div>
     <label class="seek">
       <span class="visually-hidden">シーク（フレーム）</span>
@@ -186,7 +165,7 @@
 <style>
   .preview {
     display: grid;
-    gap: 0.9rem;
+    gap: 0.6rem;
     min-width: 0;
   }
 
@@ -194,7 +173,6 @@
     position: relative;
     aspect-ratio: 16 / 9;
     width: 100%;
-    border-radius: 6px;
     overflow: hidden;
     border: 1px solid var(--rule);
   }
@@ -227,119 +205,75 @@
 
   .stage-note {
     position: absolute;
-    inset: auto 0.75rem 0.75rem;
+    left: 0.5rem;
+    bottom: 0.5rem;
     margin: 0;
-    font-size: 0.78rem;
-    color: var(--text);
-    background: rgb(0 0 0 / 0.6);
-    padding: 0.35rem 0.6rem;
-    border-radius: 4px;
-    width: fit-content;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.8rem;
+    background: #fff;
+    border: 1px solid var(--rule);
   }
 
   .stage-note.error {
     color: var(--danger);
   }
 
-  .playhead {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    height: 3px;
-    background: var(--tally);
-    box-shadow: 0 0 10px var(--tally);
-  }
-
   .readout {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 0.75rem 1.5rem;
-    padding: 0.85rem 1rem;
-    background: var(--surface-2);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-  }
-
-  .readout-date {
-    display: grid;
-    gap: 0.15rem;
-  }
-
-  .readout-label,
-  dt {
-    font-size: 0.68rem;
-    letter-spacing: 0.12em;
-    color: var(--muted);
+    gap: 0.25rem 1.5rem;
   }
 
   .date {
-    font-size: clamp(1.8rem, 5vw, 2.6rem);
-    line-height: 1;
-    color: var(--tally);
+    font-size: 1.5rem;
+    line-height: 1.2;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.02em;
   }
 
   .readout-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem 1.25rem;
+    gap: 0.25rem 1rem;
     margin: 0;
+    font-size: 0.85rem;
   }
 
   .readout-meta div {
-    display: grid;
-    gap: 0.1rem;
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  dt {
+    color: var(--muted);
   }
 
   dd {
     margin: 0;
-    font-size: 0.9rem;
     font-variant-numeric: tabular-nums;
   }
 
   .transport {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.9rem;
+    gap: 0.5rem 0.75rem;
   }
 
   .buttons {
     display: flex;
-    gap: 0.4rem;
+    gap: 0.25rem;
     flex: none;
   }
 
-  .icon {
-    width: 2.75rem;
-    height: 2.75rem;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border-radius: 50%;
-  }
-
-  .icon svg {
-    width: 1.15rem;
-    height: 1.15rem;
-    fill: currentColor;
-  }
-
-  .icon.play {
-    background: var(--tally);
-    border-color: var(--tally);
-    color: var(--on-tally);
-  }
-
-  .icon.play:hover {
-    filter: brightness(1.08);
+  .play {
+    min-width: 5.5em;
   }
 
   .seek {
     flex: 1;
-    min-width: 0;
+    min-width: 10rem;
     display: flex;
   }
 

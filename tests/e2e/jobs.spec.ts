@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { DEFAULT_CONFIG } from '../../src/lib/renderer/types.ts';
-import { completed, failed, makeJob, mockApi, openEditor, running } from './fixtures.ts';
+import { completed, failed, makeJob, mockApi, openAdvanced, openEditor, running } from './fixtures.ts';
 
 test('export: queued → running → completed with inline MP4 and downloads', async ({ page }) => {
   const queued = makeJob({ id: 'job-new' });
@@ -30,10 +30,11 @@ test('export: queued → running → completed with inline MP4 and downloads', a
   await expect(item.getByTestId('job-video')).toHaveAttribute('src', '/api/renders/job-new/assets/mp4');
   await expect(item.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
   await expect(item.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
-  await expect(item.getByText('ProRes 4444')).toBeVisible();
+  await expect(page.getByText('ProRes 4444')).toBeVisible();
 
   // Same config → no badge; editing the config → "differs" badge.
   await expect(item.getByTestId('job-differs')).toHaveCount(0);
+  await openAdvanced(page);
   await page.getByLabel('文字色', { exact: true }).fill('#FF0000');
   await expect(item.getByTestId('job-differs')).toHaveText('現在の設定とは異なる');
 });
@@ -103,6 +104,7 @@ test('completed job can be loaded into the editor; expired job shows 期限切�
 
   const item = page.locator('[data-job-id="job-done"]');
   await expect(item.getByTestId('job-differs')).toBeVisible();
+  await item.getByTestId('job-details-toggle').click();
   await item.getByRole('button', { name: 'エディターに読み込む' }).click();
   await expect(page.getByLabel('FPS', { exact: true })).toHaveValue('24');
   await expect(page.getByLabel('文字色', { exact: true })).toHaveValue('#00FF00');
@@ -112,6 +114,35 @@ test('completed job can be loaded into the editor; expired job shows 期限切�
   await expect(expired.getByTestId('job-expired')).toHaveText('期限切れ');
   await expect(expired.getByTestId('job-video')).toHaveCount(0);
   await expect(expired.getByTestId('download-mov')).toHaveCount(0);
+});
+
+test('only one completed job shows its video; プレビュー toggles it', async ({ page }) => {
+  const newer = completed(makeJob({ id: 'job-a', createdAt: '2026-11-08T05:00:00.000Z' }));
+  const older = completed(makeJob({ id: 'job-b', createdAt: '2026-11-08T04:00:00.000Z' }));
+  await mockApi(page, { list: [newer, older] });
+  await openEditor(page);
+
+  const a = page.locator('[data-job-id="job-a"]');
+  const b = page.locator('[data-job-id="job-b"]');
+  // Newest finished job is expanded by default; older rows stay compact.
+  await expect(a.getByTestId('job-video')).toBeVisible();
+  await expect(b.getByTestId('job-video')).toHaveCount(0);
+  await expect(b.getByTestId('job-details')).toHaveCount(0);
+
+  const previewB = b.getByRole('button', { name: 'プレビュー' });
+  await expect(previewB).toHaveAttribute('aria-expanded', 'false');
+  await previewB.click();
+  await expect(previewB).toHaveAttribute('aria-expanded', 'true');
+  await expect(b.getByTestId('job-video')).toBeVisible();
+  await expect(a.getByTestId('job-video')).toHaveCount(0);
+
+  await previewB.click();
+  await expect(page.getByTestId('job-video')).toHaveCount(0);
+
+  // Tertiary info is behind 詳細.
+  await b.getByTestId('job-details-toggle').click();
+  await expect(b.getByTestId('job-details')).toContainText('1920×1080 · 30fps');
+  await expect(b.getByTestId('job-details')).toContainText('MOV 362 MB');
 });
 
 test('load more appends the next page', async ({ page }) => {
@@ -129,4 +160,64 @@ test('load more appends the next page', async ({ page }) => {
   await expect(page.getByTestId('job-item')).toHaveCount(2);
   await expect(page.getByTestId('job-item').nth(1)).toHaveAttribute('data-job-id', 'job-p2');
   await expect(page.getByRole('button', { name: 'さらに読み込む' })).toHaveCount(0);
+});
+
+test('resubmitting the same config after a server error reuses the idempotency key', async ({ page }) => {
+  let calls = 0;
+  const queued = makeJob({ id: 'job-idem' });
+  const api = await mockApi(page, {
+    onCreate: () =>
+      ++calls === 1
+        ? { status: 503, body: { error: { code: 'internal', message: 'unavailable' } } }
+        : { status: 202, body: { id: 'job-idem', status: 'queued', reused: false } },
+    timelines: { 'job-idem': [completed(queued)] },
+  });
+  await openEditor(page);
+  const keys = () =>
+    api.requests.filter((r) => r.method === 'POST').map((r) => (r.body as { idempotencyKey: string }).idempotencyKey);
+
+  await page.getByTestId('export-button').click();
+  await expect(page.getByTestId('export-notice')).toContainText('サーバーでエラーが発生しました');
+  await page.getByTestId('export-button').click();
+  await expect(page.getByTestId('export-notice')).toContainText('書き出しを開始しました');
+  expect(keys()).toHaveLength(2);
+  expect(keys()[1]).toBe(keys()[0]);
+
+  // A different config gets a new key.
+  await page.getByLabel('動画秒数').fill('10');
+  await page.getByTestId('export-button').click();
+  await expect.poll(() => keys().length).toBe(3);
+  expect(keys()[2]).not.toBe(keys()[0]);
+});
+
+test('401 while polling stops polling and asks the user to sign in again', async ({ page }) => {
+  const job = running(makeJob({ id: 'job-auth' }), 30);
+  const api = await mockApi(page, {
+    list: [job],
+    onGet: () => ({ status: 401, body: { error: { code: 'unauthorized', message: 'no session' } } }),
+  });
+  await openEditor(page);
+
+  await expect(page.getByRole('alert')).toContainText('ページを再読み込み', { timeout: 10_000 });
+  const polls = () => api.requests.filter((r) => r.method === 'GET' && r.path === '/api/renders/job-auth').length;
+  const count = polls();
+  await page.waitForTimeout(4_000);
+  expect(polls()).toBe(count);
+});
+
+test('404 while polling marks the job unavailable and stops polling it', async ({ page }) => {
+  const job = running(makeJob({ id: 'job-gone' }), 30);
+  const api = await mockApi(page, {
+    list: [job],
+    onGet: () => ({ status: 404, body: { error: { code: 'not_found', message: 'gone' } } }),
+  });
+  await openEditor(page);
+
+  const item = page.locator('[data-job-id="job-gone"]');
+  await expect(item.getByTestId('job-unavailable')).toBeVisible({ timeout: 10_000 });
+  await expect(item.locator('progress')).toHaveCount(0);
+  const polls = () => api.requests.filter((r) => r.method === 'GET' && r.path === '/api/renders/job-gone').length;
+  const count = polls();
+  await page.waitForTimeout(4_000);
+  expect(polls()).toBe(count);
 });

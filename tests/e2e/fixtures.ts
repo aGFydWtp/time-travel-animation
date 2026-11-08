@@ -82,6 +82,8 @@ export interface MockApi {
   timelines: Record<string, RenderJob[]>;
   /** Handler for POST /api/renders. */
   onCreate: (body: unknown) => { status: number; body: unknown; headers?: Record<string, string> };
+  /** Optional override for GET /api/renders/:id (e.g. 401/404); return null to fall through. */
+  onGet: (id: string) => { status: number; body: unknown } | null;
   /** Handler for POST /api/renders/:id/retry. */
   onRetry: (id: string) => { status: number; body: unknown };
   requests: { method: string; path: string; body: unknown }[];
@@ -98,6 +100,7 @@ export async function mockApi(page: Page, init: Partial<MockApi> = {}): Promise<
     timelines: {},
     onCreate: () => ({ status: 500, body: { error: { code: 'internal', message: 'not mocked' } } }),
     onRetry: () => ({ status: 500, body: { error: { code: 'internal', message: 'not mocked' } } }),
+    onGet: () => null,
     requests: [],
     ...init,
   };
@@ -122,6 +125,8 @@ export async function mockApi(page: Page, init: Partial<MockApi> = {}): Promise<
     }
     if (method === 'GET' && parts.length === 1) {
       const id = decodeURIComponent(parts[0] ?? '');
+      const override = state.onGet(id);
+      if (override) return json(route, override.status, override.body);
       const timeline = state.timelines[id];
       const fromList = state.list.find((j) => j.id === id);
       if (timeline && timeline.length > 0) {
@@ -146,6 +151,12 @@ export async function mockApi(page: Page, init: Partial<MockApi> = {}): Promise<
 export async function openEditor(page: Page): Promise<void> {
   await page.goto('/');
   await page.locator('[data-testid="preview-canvas"][data-ready="true"]').waitFor();
+}
+
+/** Expand the collapsed 詳細設定 section (no-op when already open). */
+export async function openAdvanced(page: Page): Promise<void> {
+  const details = page.getByTestId('advanced-settings');
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator('summary').click();
 }
 
 /** PNG data URL of the preview canvas. */
