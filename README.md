@@ -230,6 +230,22 @@ pnpm run deploy   # pnpm build:container && void deploy --platform cloudflare
 3. `db/migrations/` の未適用マイグレーションが適用されます。適用前に D1 の復元ポイントが保存され、`void db restore` のコマンドが表示されます。
 4. 初回デプロイで生成される `void.lock.json` をコミットします。
 
+### Cloudflare Access を有効にした後のデプロイ
+
+Void はデプロイ時に、0% トラフィックで置いた新バージョンの `/__void/ready` を確認してから切り替えます。workers.dev が Access で保護されていると、この確認にも Access の資格情報が要ります。
+
+```sh
+cloudflared access login https://time-travel-animation.hr20k.workers.dev   # 初回とセッション切れのとき
+export CF_ACCESS_TOKEN="$(cloudflared access token --app=https://time-travel-animation.hr20k.workers.dev)"
+export CLOUDFLARE_WORKERS_SUBDOMAIN=hr20k
+pnpm run deploy
+```
+
+- `CLOUDFLARE_WORKERS_SUBDOMAIN` を忘れると、Void はトークンの送り先を確認できず、リクエストを送らないまま「did not pass /__void/ready」で失敗します（`preview_urls: false` のため）。
+- トークンを付けないと「Cloudflare Access blocked the uploaded Worker Version readiness probe」で失敗します。
+- どちらの失敗でも新バージョンは無効のまま残り、本番は前のバージョンで動き続けます。
+- CI からデプロイする場合は、`CF_ACCESS_TOKEN` の代わりに Access ポリシーで許可したサービストークン（`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`）を使います。
+
 ### シークレット
 
 本番の値は `void secret put` で設定します（デプロイ時に `.env` はアップロードされません）。
