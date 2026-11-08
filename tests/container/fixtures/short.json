@@ -1,0 +1,14 @@
+{
+  "startDate": "2026-03-06",
+  "endDate": "2020-01-01",
+  "durationSeconds": 2,
+  "fps": 24,
+  "width": 1280,
+  "height": 720,
+  "easing": "smootherstep",
+  "fontFamily": "bundled-mono",
+  "fontSize": 96,
+  "color": "#FFFFFF",
+  "x": 0.5,
+  "y": 0.5
+}

@@ -1,0 +1,27 @@
+# Void Sandbox image for the Date Countdown Studio renderer.
+# Base and sandbox-shim follow node_modules/void/sandbox.Dockerfile (void 1.6.2 / @cloudflare/sandbox 1.0.3).
+# Arch-agnostic: Debian provides chromium/ffmpeg for amd64 and arm64. Cloudflare runs linux/amd64.
+# Build the bundle first: `pnpm build:container` (writes container/dist).
+FROM node:26.12.1-trixie-slim
+
+# Headless Chromium + FFmpeg/FFprobe. No system fonts: the renderer loads its bundled woff2 only.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium ffmpeg \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /usr/share/doc/* /usr/share/man/*
+
+COPY --from=docker.io/cloudflare/sandbox:1.0.3 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+
+# playwright-core (version pinned by container/dist/package.json = repo's installed version).
+# Installed at build time; nothing is downloaded at runtime (the sandbox has no internet).
+WORKDIR /app
+COPY container/dist/package.json /app/package.json
+RUN npm install --omit=dev --no-audit --no-fund --no-package-lock \
+ && npm cache clean --force
+
+COPY container/dist/ /app/
+
+ENV DCS_CHROMIUM_PATH=/usr/bin/chromium \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+WORKDIR /workspace
+CMD ["sleep", "infinity"]

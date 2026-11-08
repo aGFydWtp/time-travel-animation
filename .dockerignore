@@ -1,0 +1,5 @@
+# Dockerfile.sandbox only needs container/dist (built by `pnpm build:container`).
+*
+!Dockerfile.sandbox
+!container/dist/
+!container/dist/**
