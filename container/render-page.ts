@@ -3,7 +3,10 @@
 import {
   fontCss,
   fontFaces,
+  formatDisplayDate,
   getTotalFrames,
+  layoutTabularText,
+  textWidthEm,
   loadFont,
   parseRenderConfig,
   renderFrame,
@@ -15,6 +18,8 @@ export interface DcsInitResult {
   width: number;
   height: number;
   fontFamily: string;
+  /** Measured width (px, at config.fontSize) of the drawn date; equals textWidthEm * fontSize. */
+  textWidth: number;
 }
 
 export interface DcsPageApi {
@@ -33,30 +38,49 @@ declare global {
 
 /** Every character any date format can draw. */
 const GLYPH_PROBE = '0123456789./年月日';
-const MISSING_FAMILY = '"DCS Font That Does Not Exist"';
+/** Two different generic fallbacks: a substituted glyph would match at least one of them. */
+const FALLBACKS = ['serif', 'monospace'] as const;
+
+function measure(context: CanvasRenderingContext2D, font: string, text: string): number {
+  context.font = font;
+  return context.measureText(text).width;
+}
 
 /**
  * Guard against silent fallback, per face: text drawn with the face must measure differently from
- * the same text in a non-existent family (= whatever the browser substitutes). The primary face is
- * probed with digits/separators (and kanji when it is the only face); later faces with 年月日.
+ * the same text in BOTH generic fallbacks (whatever the browser would substitute). The primary
+ * face is probed with digits/separators (and kanji when it is the only face); later faces with 年月日.
  */
 function assertBundledGlyphs(context: CanvasRenderingContext2D, fontId: string): void {
   const size = 100;
-  const measure = (font: string, text: string) => {
-    context.font = font;
-    return context.measureText(text).width;
-  };
   const faces = fontFaces(fontId);
   faces.forEach((face, i) => {
     const texts = i > 0 ? ['年月日'] : faces.length === 1 ? ['0123456789./', '年月日'] : ['0123456789./'];
     for (const text of texts) {
-      const used = measure(`${size}px "${face.family}"`, text);
-      const substituted = measure(`${size}px ${MISSING_FAMILY}`, text);
-      if (!(used > 0) || Math.abs(used - substituted) < 0.5) {
-        throw new Error(`Bundled font not used for ${JSON.stringify(text)}: ${face.family}`);
+      const used = measure(context, `${size}px "${face.family}"`, text);
+      const clash = FALLBACKS.find((g) => Math.abs(used - measure(context, `${size}px ${g}`, text)) < 0.5);
+      if (!(used > 0) || clash) {
+        throw new Error(`Bundled font not used for ${JSON.stringify(text)}: ${face.family}${clash ? ` (= ${clash})` : ''}`);
       }
     }
   });
+}
+
+/**
+ * The drawn width must match the advance table in fonts.ts (used by output verification for the
+ * text box). Throws when the table is stale for a font file.
+ */
+function measureTextWidth(context: CanvasRenderingContext2D, cfg: RenderConfig): number {
+  context.font = fontCss(cfg);
+  context.letterSpacing = '0px';
+  context.fontKerning = 'normal';
+  context.fontStretch = 'normal';
+  const measured = layoutTabularText(context, formatDisplayDate(0, cfg.dateFormat), 0).totalWidth;
+  const expected = textWidthEm(cfg.fontFamily, cfg.dateFormat) * cfg.fontSize;
+  if (Math.abs(measured - expected) > Math.max(1, expected * 0.005)) {
+    throw new Error(`Text width ${measured.toFixed(2)}px != font metrics ${expected.toFixed(2)}px (${cfg.fontFamily})`);
+  }
+  return measured;
 }
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -81,6 +105,7 @@ const api: DcsPageApi = {
     const context = canvas.getContext('2d', { alpha: true });
     if (!context) throw new Error('2D canvas context unavailable');
     assertBundledGlyphs(context, parsed.fontFamily);
+    const textWidth = measureTextWidth(context, parsed);
 
     ctx = context;
     config = parsed;
@@ -90,6 +115,7 @@ const api: DcsPageApi = {
       width: canvas.width,
       height: canvas.height,
       fontFamily: faces.map((f) => f.family).join(', '),
+      textWidth,
     };
   },
 

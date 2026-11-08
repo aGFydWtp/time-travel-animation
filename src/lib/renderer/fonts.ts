@@ -1,4 +1,5 @@
-import type { RenderConfig } from './types.ts';
+import { formatDisplayDate } from './calendar.ts';
+import type { DateFormat, RenderConfig } from './types.ts';
 
 /** One bundled font file registered via FontFace. */
 export interface FontFaceDefinition {
@@ -6,6 +7,13 @@ export interface FontFaceDefinition {
   family: string;
   /** File name under `assets/fonts/` (copied flat next to the container render page). */
   file: string;
+  /**
+   * Advance widths in em (hmtx / unitsPerEm, read from the bundled file with fonttools) of the
+   * characters a date can contain; `digit` is the widest of 0-9. `kanji` (年/月/日, all 1em) is
+   * absent when the face has no such glyphs. Used to know the drawn text width without a canvas
+   * (output verification); the render page checks it against measureText on every render.
+   */
+  advances: { digit: number; '.': number; '/': number; kanji?: number };
 }
 
 /** A selectable font: ordered faces (first = primary, later = glyph fallback, all bundled). */
@@ -17,15 +25,47 @@ export interface FontDefinition {
 
 // Faces. All files except JetBrains Mono are subsets containing only `0-9 . / 年 月 日` and space
 // (see assets/fonts/README.md for sources, licenses and how they were built).
-const JETBRAINS_MONO = { family: 'DCS JetBrains Mono', file: 'JetBrainsMono-Regular.woff2' } as const;
-const NOTO_SANS_JP = { family: 'DCS Noto Sans JP', file: 'NotoSansJP-DateGlyphs.woff2' } as const;
-const NOTO_SERIF_JP = { family: 'DCS Noto Serif JP', file: 'NotoSerifJP-DateGlyphs.woff2' } as const;
-const ZEN_MARU_GOTHIC = { family: 'DCS Zen Maru Gothic', file: 'ZenMaruGothic-DateGlyphs.woff2' } as const;
-const KLEE_ONE = { family: 'DCS Klee One', file: 'KleeOne-DateGlyphs.woff2' } as const;
-const DELA_GOTHIC_ONE = { family: 'DCS Dela Gothic One', file: 'DelaGothicOne-DateGlyphs.woff2' } as const;
-const DOTGOTHIC16 = { family: 'DCS DotGothic16', file: 'DotGothic16-DateGlyphs.woff2' } as const;
+const JETBRAINS_MONO = {
+  family: 'DCS JetBrains Mono',
+  file: 'JetBrainsMono-Regular.woff2',
+  advances: { digit: 0.6, '.': 0.6, '/': 0.6 },
+} as const satisfies FontFaceDefinition;
+const NOTO_SANS_JP = {
+  family: 'DCS Noto Sans JP',
+  file: 'NotoSansJP-DateGlyphs.woff2',
+  advances: { digit: 0.555, '.': 0.278, '/': 0.392, kanji: 1 },
+} as const satisfies FontFaceDefinition;
+const NOTO_SERIF_JP = {
+  family: 'DCS Noto Serif JP',
+  file: 'NotoSerifJP-DateGlyphs.woff2',
+  advances: { digit: 0.562, '.': 0.327, '/': 0.352, kanji: 1 },
+} as const satisfies FontFaceDefinition;
+const ZEN_MARU_GOTHIC = {
+  family: 'DCS Zen Maru Gothic',
+  file: 'ZenMaruGothic-DateGlyphs.woff2',
+  advances: { digit: 0.509, '.': 0.243, '/': 0.546, kanji: 1 },
+} as const satisfies FontFaceDefinition;
+const KLEE_ONE = {
+  family: 'DCS Klee One',
+  file: 'KleeOne-DateGlyphs.woff2',
+  advances: { digit: 0.6, '.': 0.35, '/': 0.35, kanji: 1 },
+} as const satisfies FontFaceDefinition;
+const DELA_GOTHIC_ONE = {
+  family: 'DCS Dela Gothic One',
+  file: 'DelaGothicOne-DateGlyphs.woff2',
+  advances: { digit: 0.924, '.': 0.272, '/': 0.499, kanji: 1 },
+} as const satisfies FontFaceDefinition;
+const DOTGOTHIC16 = {
+  family: 'DCS DotGothic16',
+  file: 'DotGothic16-DateGlyphs.woff2',
+  advances: { digit: 0.5, '.': 0.5, '/': 0.5, kanji: 1 },
+} as const satisfies FontFaceDefinition;
 // Subset of Orbitron, renamed: Orbitron is a Reserved Font Name and must not name a modified version.
-const DCS_DIGITAL = { family: 'DCS Digital', file: 'DCSDigital-DateGlyphs.woff2' } as const;
+const DCS_DIGITAL = {
+  family: 'DCS Digital',
+  file: 'DCSDigital-DateGlyphs.woff2',
+  advances: { digit: 0.834, '.': 0.214, '/': 0.521 },
+} as const satisfies FontFaceDefinition;
 
 /** Glyph face that supplies 年/月/日 for fonts that lack them. */
 export const DATE_GLYPHS_FACE: FontFaceDefinition = NOTO_SANS_JP;
@@ -74,6 +114,32 @@ export function fontCss(config: Pick<RenderConfig, 'fontFamily' | 'fontSize'>): 
   return `${config.fontSize}px ${families.join(', ')}`;
 }
 
+/**
+ * Width in em of a date drawn by renderFrame (tabular digits, see layoutTabularText) with this
+ * font and format. Independent of the date itself. Each character resolves to the first face in
+ * the stack that has it, like the browser's per-character font fallback.
+ */
+export function textWidthEm(fontId: string, format: DateFormat): number {
+  const faces = fontFaces(fontId);
+  let width = 0;
+  for (const c of formatDisplayDate(0, format)) {
+    let adv: number | undefined;
+    if (c >= '0' && c <= '9') adv = faces[0]!.advances.digit;
+    else if (c === '.' || c === '/') adv = faces[0]!.advances[c];
+    else adv = faces.find((f) => f.advances.kanji !== undefined)?.advances.kanji;
+    if (adv === undefined) throw new Error(`No bundled glyph for ${JSON.stringify(c)} in font ${fontId}`);
+    width += adv;
+  }
+  return width;
+}
+
+let fontEpoch = 0;
+
+/** Incremented whenever a bundled face finishes loading (invalidates measurement caches). */
+export function getFontEpoch(): number {
+  return fontEpoch;
+}
+
 /** Maps a bundled font file name (FONT_FILES entry) to a URL the browser can fetch. */
 export type FontUrlResolver = (file: string) => string;
 
@@ -91,8 +157,15 @@ function loadFace(face: FontFaceDefinition, url: string): Promise<void> {
       display: 'block',
     });
     document.fonts.add(fontFace);
-    await fontFace.load();
-    if (fontFace.status !== 'loaded') throw new Error(`Font failed to load: ${face.family}`);
+    try {
+      await fontFace.load();
+      if (fontFace.status !== 'loaded') throw new Error(`Font failed to load: ${face.family}`);
+    } catch (err) {
+      document.fonts.delete(fontFace); // a retry registers a fresh face
+      throw err;
+    } finally {
+      fontEpoch++;
+    }
   })();
 
   loading.set(key, promise);

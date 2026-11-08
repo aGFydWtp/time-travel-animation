@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DATE_GLYPHS_FACE, fontCss, fontFaces, FONT_FILES, FONT_IDS, FONTS, getFont, isFontId } from './fonts.ts';
+import { DATE_GLYPHS_FACE, fontCss, fontFaces, FONT_FILES, FONT_IDS, FONTS, getFont, isFontId, textWidthEm } from './fonts.ts';
 import { layoutTabularText, renderFrame, type RenderContext } from './render-frame.ts';
-import { DEFAULT_CONFIG, type RenderConfig } from './types.ts';
+import { DATE_FORMATS, DEFAULT_CONFIG, type RenderConfig } from './types.ts';
 
 type Call = { method: string; args: unknown[]; state: Record<string, unknown> };
 
@@ -111,6 +111,54 @@ describe('renderFrame', () => {
     renderFrame(a.ctx, 123, DEFAULT_CONFIG);
     renderFrame(b.ctx, 123, DEFAULT_CONFIG);
     expect(a.calls).toEqual(b.calls);
+  });
+});
+
+describe('renderFrame text state', () => {
+  it('resets letterSpacing / fontKerning / fontStretch when the context supports them', () => {
+    const { ctx } = createMockContext();
+    const extra = ctx as unknown as Record<string, unknown>;
+    Object.assign(extra, { letterSpacing: '5px', fontKerning: 'none', fontStretch: 'condensed' });
+    renderFrame(ctx, 0, DEFAULT_CONFIG);
+    expect(extra).toMatchObject({ letterSpacing: '0px', fontKerning: 'normal', fontStretch: 'normal' });
+  });
+
+  it('measures the digit cell once per font string (cached across frames)', () => {
+    const { ctx } = createMockContext();
+    const config: RenderConfig = { ...DEFAULT_CONFIG, fontSize: 77 }; // font string unique to this test
+    let digitMeasures = 0;
+    (ctx as unknown as Record<string, unknown>).measureText = (t: string) => {
+      if (/^[0-9]$/.test(t)) digitMeasures++;
+      return fakeMeasure(t);
+    };
+    renderFrame(ctx, 0, config);
+    expect(digitMeasures).toBe(10);
+    renderFrame(ctx, 200, config);
+    renderFrame(ctx, 449, config);
+    expect(digitMeasures).toBe(10);
+  });
+});
+
+describe('textWidthEm', () => {
+  it.each([
+    ['bundled-mono', 'YYYY.MM.DD', 6.0],
+    ['bundled-mono', 'YYYY年MM月DD日', 7.8],
+    ['dela-gothic-one', 'YYYY年MM月DD日', 8 * 0.924 + 3],
+    ['digital', 'YYYY年MM月DD日', 8 * 0.834 + 3],
+    ['digital', 'YYYY/MM/DD', 8 * 0.834 + 2 * 0.521],
+    ['noto-serif-jp', 'YYYY.MM.DD', 8 * 0.562 + 2 * 0.327],
+  ] as const)('%s / %s = %f em', (id, format, em) => {
+    expect(textWidthEm(id, format)).toBeCloseTo(em, 6);
+  });
+
+  it('is defined for every font and format (all glyphs come from bundled faces)', () => {
+    for (const id of FONT_IDS) {
+      for (const f of DATE_FORMATS) {
+        const w = textWidthEm(id, f);
+        expect(w, `${id} ${f}`).toBeGreaterThan(3.5);
+        expect(w, `${id} ${f}`).toBeLessThan(11);
+      }
+    }
   });
 });
 

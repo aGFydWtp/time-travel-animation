@@ -1,6 +1,7 @@
 // Output verification: ffprobe stream checks + decoded-pixel alpha / background checks.
 // Runs inside the container (called by render-entry) and from tests on the host.
 import { open } from 'node:fs/promises';
+import { textWidthEm } from '../src/lib/renderer/fonts.ts';
 import type { RenderConfig } from '../src/lib/renderer/types.ts';
 import { run } from './proc.ts';
 
@@ -181,14 +182,21 @@ export interface Box {
   y1: number;
 }
 
+type TextBoxConfig = Pick<RenderConfig, 'width' | 'height' | 'x' | 'y' | 'fontSize' | 'fontFamily' | 'dateFormat'>;
+
+/** Margin beyond the advance width: glyph overhang (<= 0.04em in the bundled fonts) + antialiasing. */
+const TEXT_BOX_MARGIN_EM = 0.15;
+
 /**
- * Generous box around where the date text is drawn (center-aligned at x*width, y*height).
- * "YYYY-MM-DD" in a monospace font is ~6em wide and <1em tall.
+ * Box around where the date text is drawn (centered at x*width, y*height). The width is the
+ * actual drawn width from the bundled fonts' advance table (textWidthEm — tabular digits, so it
+ * does not depend on the date; the render page asserts it against measureText), plus a margin.
+ * Vertically, every bundled glyph stays within ±0.65em of the 'middle' baseline.
  */
-export function textBox(config: Pick<RenderConfig, 'width' | 'height' | 'x' | 'y' | 'fontSize'>): Box {
+export function textBox(config: TextBoxConfig): Box {
   const cx = config.x * config.width;
   const cy = config.y * config.height;
-  const halfW = config.fontSize * 3.5;
+  const halfW = (textWidthEm(config.fontFamily, config.dateFormat) / 2 + TEXT_BOX_MARGIN_EM) * config.fontSize + 2;
   const halfH = config.fontSize * 0.8;
   return {
     x0: Math.max(0, Math.floor(cx - halfW)),
@@ -223,10 +231,7 @@ export interface AlphaStats {
   opaqueMeanRgb: [number, number, number] | null;
 }
 
-export function alphaStats(
-  rgba: Buffer,
-  config: Pick<RenderConfig, 'width' | 'height' | 'x' | 'y' | 'fontSize'>,
-): AlphaStats {
+export function alphaStats(rgba: Buffer, config: TextBoxConfig): AlphaStats {
   const { width, height } = config;
   const box = textBox(config);
   let cornersChecked = 0;

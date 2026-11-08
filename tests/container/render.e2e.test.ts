@@ -17,6 +17,7 @@ import {
   extractFrame,
   isFaststart,
   probe,
+  textBox,
   type Tools,
 } from '../../container/verify-output.ts';
 import { dockerAvailable, ensureImage, renderInDocker } from '../../scripts/render-local.ts';
@@ -47,6 +48,19 @@ function inkPixels(rgba: Buffer): number {
   let n = 0;
   for (let i = 3; i < rgba.length; i += 4) if (rgba[i] > 0) n++;
   return n;
+}
+
+/** Bounding box of pixels with alpha > 0 (null when empty). */
+function inkBox(rgba: Buffer, width: number): { x0: number; y0: number; x1: number; y1: number } | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+  for (let i = 3; i < rgba.length; i += 4) {
+    if (rgba[i] === 0) continue;
+    const p = (i - 3) / 4;
+    const x = p % width;
+    const y = Math.floor(p / width);
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1);
+  }
+  return x1 < 0 ? null : { x0, y0, x1, y1 };
 }
 
 /** Max per-channel RGB difference over pixels opaque in both images. */
@@ -214,6 +228,39 @@ describe.skipIf(!HAS_DOCKER)('container renderer (docker)', () => {
       expect(alphaDiffFraction(goldKanji, goldDot)).toBeGreaterThan(0.002);
       // and the kanji string is wider, so it covers more pixels than the dotted one
       expect(inkPixels(goldKanji)).toBeGreaterThan(inkPixels(goldDot) * 1.2);
+    });
+
+    test('every font keeps its ink inside the verification text box (width from font metrics)', () => {
+      for (const id of FONT_IDS) {
+        const ink = inkBox(stills[id]!, config.width)!;
+        const box = textBox({ ...kanjiConfig, fontFamily: id });
+        expect(ink, id).not.toBeNull();
+        expect(ink.x0, id).toBeGreaterThanOrEqual(box.x0);
+        expect(ink.x1, id).toBeLessThanOrEqual(box.x1);
+        expect(ink.y0, id).toBeGreaterThanOrEqual(box.y0);
+        expect(ink.y1, id).toBeLessThanOrEqual(box.y1);
+        // and the box is not wildly larger than the text (keeps the corner checks meaningful)
+        expect(box.x1 - box.x0 - (ink.x1 - ink.x0), id).toBeLessThan(0.8 * config.fontSize);
+      }
+    });
+
+    test('wide font near the top-left (kanji + dela-gothic-one at x=0.3, y=0.06) passes verification', async () => {
+      const edge = parseRenderConfig({ ...config, fontFamily: 'dela-gothic-one', dateFormat: KANJI, x: 0.3, y: 0.06, durationSeconds: 1 });
+      const cfgPath = join(OUT, 'edge.json');
+      const dir = join(OUT, 'edge');
+      await writeFile(cfgPath, JSON.stringify(edge));
+      expect(await renderInDocker({ configPath: cfgPath, outDir: dir, image })).toBe(0);
+      const res = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+      expect(res.ok).toBe(true);
+      expect((res.verification.checks as { ok: boolean }[]).filter((c) => !c.ok)).toEqual([]);
+      for (const frame of [0, 23]) {
+        const rgba = await extractFrame(join(dir, 'transparent.mov'), frame, edge.width, edge.height, 'rgba', tools);
+        const stats = alphaStats(rgba, edge);
+        expect(stats.cornersChecked).toBeGreaterThanOrEqual(2);
+        expect(checkAlphaFrame(stats, edge).filter((c) => !c.ok)).toEqual([]);
+        // The text runs off the left edge, i.e. it is wider than the old fixed 7em box assumed.
+        expect(inkBox(rgba, edge.width)!.x0).toBe(0);
+      }
     });
 
     test('every font renders non-empty glyphs, and all fonts differ pairwise', () => {

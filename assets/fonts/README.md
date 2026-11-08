@@ -3,17 +3,18 @@
 The renderer only ever draws with these files (registered via `FontFace` under unique `DCS …`
 family names; no platform font fallback). The registry is `src/lib/renderer/fonts.ts`.
 
-All fonts are licensed under the SIL Open Font License 1.1. Each license file is kept next to the
-font as shipped by the source repository.
+All fonts are licensed under the SIL Open Font License 1.1. Each license file is the one shipped
+by the source repository, with its first (copyright) line set to the font's own copyright notice
+(name ID 0); google/fonts' `ofl/notoserifjp/OFL.txt` carries a stale "2012 Google Inc." line.
 
 ## Credits
 
 | Font id | File | Font | Author | License | Source |
 | --- | --- | --- | --- | --- | --- |
 | `bundled-mono` | `JetBrainsMono-Regular.woff2` | JetBrains Mono Regular | The JetBrains Mono Project Authors | OFL 1.1 (`OFL.txt`) | https://github.com/JetBrains/JetBrainsMono |
-| `noto-sans-jp` (+ 年月日 for `bundled-mono`, `digital`) | `NotoSansJP-DateGlyphs.woff2` | Noto Sans JP (wght 400) | Adobe / Google (Reserved Font Name "Source") | OFL 1.1 (`OFL-NotoSansJP.txt`) | https://github.com/google/fonts/tree/main/ofl/notosansjp |
-| `noto-serif-jp` | `NotoSerifJP-DateGlyphs.woff2` | Noto Serif JP (wght 400) | Google | OFL 1.1 (`OFL-NotoSerifJP.txt`) | https://github.com/google/fonts/tree/main/ofl/notoserifjp |
-| `zen-maru-gothic` | `ZenMaruGothic-DateGlyphs.woff2` | Zen Maru Gothic Regular | The Zen Maru Gothic Project Authors | OFL 1.1 (`OFL-ZenMaruGothic.txt`) | https://github.com/google/fonts/tree/main/ofl/zenmarugothic |
+| `noto-sans-jp` (+ 年月日 for `bundled-mono`, `digital`) | `NotoSansJP-DateGlyphs.woff2` | Noto Sans JP (wght 400) | Adobe (Reserved Font Name "Source") | OFL 1.1 (`OFL-NotoSansJP.txt`) | https://github.com/google/fonts/tree/main/ofl/notosansjp |
+| `noto-serif-jp` | `NotoSerifJP-DateGlyphs.woff2` | Noto Serif JP (wght 400) | Adobe | OFL 1.1 (`OFL-NotoSerifJP.txt`) | https://github.com/google/fonts/tree/main/ofl/notoserifjp |
+| `zen-maru-gothic` | `ZenMaruGothic-DateGlyphs.woff2` | Zen Maru Gothic Regular | The Zen Maru Gothic Authors | OFL 1.1 (`OFL-ZenMaruGothic.txt`) | https://github.com/google/fonts/tree/main/ofl/zenmarugothic |
 | `klee-one` | `KleeOne-DateGlyphs.woff2` | Klee One Regular | The Klee Project Authors (Fontworks) | OFL 1.1 (`OFL-KleeOne.txt`) | https://github.com/google/fonts/tree/main/ofl/kleeone |
 | `dela-gothic-one` | `DelaGothicOne-DateGlyphs.woff2` | Dela Gothic One Regular | The Dela Gothic Project Authors | OFL 1.1 (`OFL-DelaGothicOne.txt`) | https://github.com/google/fonts/tree/main/ofl/delagothicone |
 | `dotgothic16` | `DotGothic16-DateGlyphs.woff2` | DotGothic16 Regular | The DotGothic16 Project Authors (Fontworks) | OFL 1.1 (`OFL-DotGothic16.txt`) | https://github.com/google/fonts/tree/main/ofl/dotgothic16 |

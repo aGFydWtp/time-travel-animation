@@ -1,4 +1,4 @@
-import { fontCss } from './fonts.ts';
+import { fontCss, getFontEpoch } from './fonts.ts';
 import { getDateAtFrame } from './frames.ts';
 import type { RenderConfig } from './types.ts';
 
@@ -15,7 +15,9 @@ export type RenderContext = Pick<
   | 'textBaseline'
   | 'globalAlpha'
   | 'globalCompositeOperation'
->;
+> &
+  // Newer text properties: reset when the context supports them (absent in older engines/mocks).
+  Partial<Pick<CanvasRenderingContext2D, 'letterSpacing' | 'fontKerning' | 'fontStretch'>>;
 
 export interface GlyphPlacement {
   char: string;
@@ -32,6 +34,23 @@ export interface TextLayout {
 
 const DIGITS = '0123456789';
 
+/** Widest-digit advance per (font epoch, ctx.font); the epoch changes whenever a face finishes loading. */
+const digitCellCache = new Map<string, number>();
+const DIGIT_CELL_CACHE_MAX = 64;
+
+function digitCellWidth(ctx: Pick<CanvasRenderingContext2D, 'measureText'> & { font?: string }): number {
+  const key = typeof ctx.font === 'string' ? `${getFontEpoch()}\u0000${ctx.font}` : null;
+  const cached = key === null ? undefined : digitCellCache.get(key);
+  if (cached !== undefined) return cached;
+  let width = 0;
+  for (const d of DIGITS) width = Math.max(width, ctx.measureText(d).width);
+  if (key !== null) {
+    if (digitCellCache.size >= DIGIT_CELL_CACHE_MAX) digitCellCache.clear();
+    digitCellCache.set(key, width);
+  }
+  return width;
+}
+
 /**
  * Tabular layout independent of the font's own digit widths: every digit is centered in a cell as
  * wide as the widest digit ('0'–'9') of the current `ctx.font`; other characters (separators,
@@ -40,15 +59,14 @@ const DIGITS = '0123456789';
  * Uses only ctx.measureText with the font already set on ctx.
  */
 export function layoutTabularText(
-  ctx: Pick<CanvasRenderingContext2D, 'measureText'>,
+  ctx: Pick<CanvasRenderingContext2D, 'measureText'> & { font?: string },
   text: string,
   centerX: number,
 ): TextLayout {
-  let digitCellWidth = 0;
-  for (const d of DIGITS) digitCellWidth = Math.max(digitCellWidth, ctx.measureText(d).width);
+  const cell = digitCellWidth(ctx);
 
   const chars = Array.from(text);
-  const widths = chars.map((c) => (DIGITS.includes(c) ? digitCellWidth : ctx.measureText(c).width));
+  const widths = chars.map((c) => (DIGITS.includes(c) ? cell : ctx.measureText(c).width));
   const totalWidth = widths.reduce((a, b) => a + b, 0);
 
   let cursor = centerX - totalWidth / 2;
@@ -58,7 +76,7 @@ export function layoutTabularText(
     cursor += width;
     return glyph;
   });
-  return { glyphs, totalWidth, digitCellWidth };
+  return { glyphs, totalWidth, digitCellWidth: cell };
 }
 
 /**
@@ -74,6 +92,9 @@ export function renderFrame(ctx: RenderContext, frameIndex: number, config: Rend
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   ctx.font = fontCss(config);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  if ('fontKerning' in ctx) ctx.fontKerning = 'normal';
+  if ('fontStretch' in ctx) ctx.fontStretch = 'normal';
   ctx.fillStyle = config.color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
