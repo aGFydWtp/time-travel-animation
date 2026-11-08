@@ -8,8 +8,9 @@ Void API 調査: `claudedocs/void-research.md`（void@1.6.2 / @void/svelte 1.6.2
 1. **Sandbox は R2/D1 に直接触れない。** Queue consumer（Worker）が
    sandbox 内でレンダリング → `files.stat()` + `files.readFile()` → `storage.put()` → `db.update()` を行う。
    R2 `put()` は長さ不明ストリームを拒否するので `FixedLengthStream(size)` に pipe する。
-2. **Queue consumer は 15 分で打ち切られる。** MVP では `sandbox.run(argv, { signal: AbortSignal.timeout(~12min) })` を await する同期方式。
-   受け入れ条件（450 フレーム / 1080p）は収まる想定。超える場合の exec+ポーリング方式は README の既知の制約に記載。
+2. **Queue consumer は 15 分で打ち切られる。** そのため `start` メッセージで render-entry を sandbox 内でデタッチ起動し、
+   `poll` メッセージ（約 10 秒ごとの遅延送信）で progress.json / result.json を読んで進捗更新・完了時アップロードを行う（ユーザー決定 2026-11-08）。
+   1 回の consumer 実行は短く保つ。heartbeat（5 秒）が 3 分途絶 → `stalled`、ジョブ全体 2 時間で `timeout`。
 3. **DLQ なし。** D1 を状態の真実の源泉にする。`maxBatchSize = 1`、状態遷移は比較更新（CAS）。
    cron（`crons/sweep.ts`）が取り残された `queued`（Queue 送信失敗）を再送し、期限切れ `running` を `failed` にする。
 4. **ダウンロードは Worker プロキシ（Range 対応）。** 署名 URL（S3 クレデンシャル）は使わない。仕様 §3.1-7 で許容される方式。

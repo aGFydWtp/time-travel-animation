@@ -17,8 +17,9 @@ export default defineConfig({
   // ローカルでも Cloudflare の制約どおり linux/amd64 でビルド・実行される（Apple Silicon ではエミュレーション）。
   // standard-2 = 1 vCPU / 6 GiB。受け入れ条件（450 フレーム 1080p）の実測（Apple Silicon 上の docker --cpus）は
   // 1 vCPU で約 140 秒（大半は ProRes エンコード）・ピーク約 1.3 GB、0.5 vCPU（standard-1 相当）で約 270 秒。
-  // Cloudflare の vCPU はこの Mac のコアより遅い可能性があるため、RENDER_TIMEOUT_MS（12 分）に対して
-  // 2.6 倍の余裕しかない standard-1 ではなく、約 5 倍の余裕がある standard-2 を使う。
+  // 描画はコンテナ内でバックグラウンド実行し、Queue consumer が約 10 秒毎の poll で進捗を確認するため、
+  // consumer の 15 分上限は尺を縛らない（ジョブ全体の上限は MAX_RENDER_MS = 2 時間）。Cloudflare の vCPU は
+  // この Mac のコアより遅い可能性があるため、書き出し時間を短くする目的で standard-1 ではなく standard-2 を使う。
   sandbox: {
     image: './Dockerfile.sandbox',
     instanceType: 'standard-2',
