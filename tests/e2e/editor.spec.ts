@@ -300,3 +300,45 @@ test.describe('mobile 375×812', () => {
     await expect(page.getByTestId('export-button')).toBeEnabled();
   });
 });
+
+test.describe('touch device', () => {
+  // isMobile + hasTouch make Chromium report `(pointer: coarse)`, like a phone.
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test('tapping the calendar icon hits the real native date input', async ({ page }) => {
+    // Mobile Safari ignores showPicker() on a hidden input, so touch devices get no button:
+    // the transparent date input itself sits on the icon and receives the tap.
+    await expect(page.getByRole('button', { name: 'カレンダーから選ぶ' })).toHaveCount(0);
+
+    const start = page.getByLabel('開始日');
+    const native = start.locator('xpath=..').locator('input[type="date"]');
+    await expect(native).toHaveAttribute('aria-label', 'カレンダーから選ぶ');
+
+    const box = await native.boundingBox();
+    const field = await start.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(32);
+    expect(box?.width).toBeLessThanOrEqual(48);
+    expect(box?.height).toBeGreaterThanOrEqual(32);
+    // The overlay stays inside the field's right edge, so the rest of the field is still text.
+    expect(box!.x).toBeGreaterThan(field!.x + field!.width - 48);
+    const typeAt = (x: number, y: number) =>
+      page.evaluate(
+        (p) => (document.elementFromPoint(p.x, p.y) as HTMLInputElement | null)?.type,
+        { x, y },
+      );
+    expect(await typeAt(box!.x + box!.width / 2, box!.y + box!.height / 2)).toBe('date');
+    expect(await typeAt(field!.x + field!.width * 0.3, field!.y + field!.height / 2)).toBe('text');
+
+    // Tapping the text part still focuses the text field for typing.
+    await start.tap({ position: { x: 20, y: field!.height / 2 } });
+    await expect(start).toBeFocused();
+
+    await native.evaluate((el) => {
+      const input = el as HTMLInputElement;
+      input.value = '2025-12-24';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await expect(start).toHaveValue('2025/12/24');
+    await expect(page.getByTestId('current-date')).toHaveText('2025/12/24');
+  });
+});

@@ -15,11 +15,18 @@
   let text = $state(isoToDisplay(value));
   let picker: HTMLInputElement | undefined = $state();
   let field: HTMLInputElement | undefined = $state();
-  /** The calendar button is only offered where the native picker can be opened programmatically. */
-  let canPick = $state(false);
+  /**
+   * How the calendar opens:
+   * - 'touch': the transparent native date input sits on the icon and is tapped directly.
+   *   Mobile Safari ignores `showPicker()` on a hidden input, but a real tap opens its picker.
+   * - 'button': a mouse/keyboard button calls `showPicker()` on the hidden native input.
+   * - 'none': neither works, so only the text field is offered.
+   */
+  let pickMode: 'none' | 'button' | 'touch' = $state('none');
 
   onMount(() => {
-    canPick = typeof HTMLInputElement.prototype.showPicker === 'function';
+    if (window.matchMedia('(pointer: coarse)').matches) pickMode = 'touch';
+    else if (typeof HTMLInputElement.prototype.showPicker === 'function') pickMode = 'button';
   });
 
   const toValue = (t: string) => parseDateInput(t) ?? normalizeDateInput(t);
@@ -83,27 +90,35 @@
     aria-invalid={invalid}
     aria-describedby={describedBy}
   />
-  {#if canPick}
+  {#if pickMode === 'button'}
     <button type="button" class="calendar" onclick={openPicker} aria-label="カレンダーから選ぶ" title="カレンダーから選ぶ">
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
-        <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
-      </svg>
+      {@render calendarIcon()}
     </button>
+  {:else if pickMode === 'touch'}
+    <span class="calendar" aria-hidden="true">{@render calendarIcon()}</span>
   {/if}
   <!-- Native picker only for its popup calendar; the text input is the real field. -->
   <input
     bind:this={picker}
     class="native"
+    class:touch={pickMode === 'touch'}
     type="date"
     tabindex="-1"
-    aria-hidden="true"
+    aria-label={pickMode === 'touch' ? 'カレンダーから選ぶ' : undefined}
+    aria-hidden={pickMode === 'touch' ? undefined : 'true'}
     min="1000-01-01"
     max="9999-12-31"
     value={parseDateInput(text) ?? ''}
     onchange={onPick}
   />
 </div>
+
+{#snippet calendarIcon()}
+  <svg viewBox="0 0 16 16" aria-hidden="true">
+    <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+    <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+  </svg>
+{/snippet}
 
 <style>
   .date-field {
@@ -130,7 +145,7 @@
     color: var(--muted);
   }
 
-  .calendar:hover:not(:disabled) {
+  button.calendar:hover:not(:disabled) {
     background: var(--subtle);
     color: var(--ink);
   }
@@ -144,16 +159,42 @@
     stroke-linecap: round;
   }
 
-  /* Kept in the layout (showPicker needs a rendered element) but invisible, under the icon. */
-  .native {
+  /*
+   * Kept in the layout (showPicker needs a rendered element) but invisible, under the icon.
+   * `.date-field input.native` must outrank the global `input:not(...):not(...):not(...)` rule
+   * (width 100%, min-height, padding), or the native input stretches over the text field.
+   */
+  .date-field input.native {
     position: absolute;
     right: 2px;
     bottom: 0;
     width: 32px;
+    min-width: 0;
     height: 1px;
+    min-height: 0;
     padding: 0;
     border: 0;
     opacity: 0;
     pointer-events: none;
+  }
+
+  /* Touch: the invisible native input covers only the icon slot so a tap opens the OS date picker. */
+  .date-field input.native.touch {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 40px; /* = the text field's padding-right */
+    height: auto;
+    font-size: 16px; /* below 16px iOS zooms the page on focus */
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .date-field:has(.native.touch:active) .calendar {
+    background: var(--subtle);
+    color: var(--ink);
   }
 </style>
