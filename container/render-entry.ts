@@ -1,16 +1,17 @@
 // Container entry: config JSON -> transparent PNG frames (headless Chromium + shared renderer)
-// -> preview.mp4 (H.264 over black) + transparent.mov (ProRes 4444) -> verify -> result.json.
+// -> preview.mp4 (H.264 over a black or white backdrop) + transparent.mov (ProRes 4444) -> verify -> result.json.
 //
 //   node /app/render-entry.mjs --config <config.json> --out <dir> [--work <dir>] [--stills 0,47]
 //
 // --stills renders only the listed frame indices to <out>/stills/frame_%05d.png (no encoding);
 // used for golden-image comparisons.
+import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright-core';
-import { getTotalFrames, parseRenderConfig, type RenderConfig } from '../src/lib/renderer/index.ts';
+import { backdropFor, getTotalFrames, parseRenderConfig, type RenderConfig } from '../src/lib/renderer/index.ts';
 import { run } from './proc.ts';
 import { alphaStats, checkAlphaFrame, extractFrame, verifyOutputs, type VerifyReport } from './verify-output.ts';
 
@@ -211,11 +212,13 @@ const COLOR_TAGS = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colors
 
 export function mp4Args(framesDir: string, config: RenderConfig, totalFrames: number, outFile: string): string[] {
   const { width, height, fps } = config;
+  // Black or white, whichever contrasts with the text (same rule as the preview's CSS background).
+  const backdrop = backdropFor(config.color).replace('#', '0x');
   return [
     '-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}`,
+    '-f', 'lavfi', '-i', `color=c=${backdrop}:s=${width}x${height}:r=${fps}`,
     '-framerate', String(fps), '-start_number', '0', '-i', join(framesDir, FRAME_PATTERN),
-    // Straight-alpha PNG over opaque black, blended in RGB, then BT.709 limited-range 4:2:0.
+    // Straight-alpha PNG over the opaque backdrop, blended in RGB, then BT.709 limited-range 4:2:0.
     '-filter_complex',
     '[0:v][1:v]overlay=shortest=1:format=rgb,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]',
     '-map', '[v]',
@@ -389,7 +392,18 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(async (err: unknown) => {
+// Run only as the entry script, so tests can import the ffmpeg argument builders.
+// Compare real paths: Node resolves the main module through symlinks, argv[1] may not.
+const isEntry = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
+
+if (isEntry) main().catch(async (err: unknown) => {
   const code: ErrorCode = err instanceof RenderError ? err.code : 'IO_ERROR';
   // Full detail goes to stderr (container logs); result.json only carries a sanitized code + message.
   console.error(`[render-entry] ${code}:`, err instanceof Error && err.cause ? err.cause : err);

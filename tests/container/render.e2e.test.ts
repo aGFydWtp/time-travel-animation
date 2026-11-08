@@ -11,7 +11,7 @@ import {
   alphaStats,
   checkAlphaFrame,
   checkMovProbe,
-  checkMp4Black,
+  checkMp4Backdrop,
   checkMp4Probe,
   DEFAULT_TOOLS,
   extractFrame,
@@ -150,9 +150,29 @@ describe.skipIf(!HAS_DOCKER)('container renderer (docker)', () => {
     }
   });
 
-  test('MP4 background is black', async () => {
+  test('MP4 background is black behind light text', async () => {
+    expect(config.color).toBe('#FFFFFF');
     const rgb = await extractFrame(mp4, Math.floor(totalFrames / 2), config.width, config.height, 'rgb24', tools);
-    expect(checkMp4Black(rgb, config).ok).toBe(true);
+    expect(checkMp4Backdrop(rgb, config)).toMatchObject({ ok: true, detail: expect.stringContaining('#000000') });
+  });
+
+  test('MP4 background is white behind dark text (short render)', async () => {
+    const dark = parseRenderConfig({ ...config, color: '#000000', durationSeconds: 1 });
+    const cfgPath = join(OUT, 'dark-text.json');
+    const dir = join(OUT, 'dark-text');
+    await writeFile(cfgPath, JSON.stringify(dark));
+    expect(await renderInDocker({ configPath: cfgPath, outDir: dir, image })).toBe(0);
+    const res = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+    expect(res.ok).toBe(true);
+    expect((res.verification.checks as { ok: boolean }[]).filter((c) => !c.ok)).toEqual([]);
+
+    const rgb = await extractFrame(join(dir, 'preview.mp4'), 12, dark.width, dark.height, 'rgb24', tools);
+    expect(checkMp4Backdrop(rgb, dark)).toMatchObject({ ok: true, detail: expect.stringContaining('#FFFFFF') });
+    // The same frame is not black-backed: the light-text check fails on it.
+    expect(checkMp4Backdrop(rgb, { ...dark, color: '#FFFFFF' }).ok).toBe(false);
+    // The MOV stays transparent with black text.
+    const rgba = await extractFrame(join(dir, 'transparent.mov'), 12, dark.width, dark.height, 'rgba', tools);
+    expect(checkAlphaFrame(alphaStats(rgba, dark), dark).filter((c) => !c.ok)).toEqual([]);
   });
 
   test('invalid config fails with a sanitized error code and exit 2', async () => {

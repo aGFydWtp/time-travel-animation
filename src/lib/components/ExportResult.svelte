@@ -20,9 +20,7 @@
   {:else}
     <p class="muted">{stale ? '前回の書き出し' : '書き出しが完了しました'}</p>
     {#if assets}
-      <div class="downloads">
-        <DownloadLinks mov={assets.mov} mp4={assets.mp4} />
-      </div>
+      <DownloadLinks mov={assets.mov} />
     {/if}
   {/if}
 </div>
@@ -46,11 +44,5 @@
   .failed {
     color: var(--danger);
     overflow-wrap: anywhere;
-  }
-
-  .downloads {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
   }
 </style>

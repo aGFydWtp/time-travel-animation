@@ -344,3 +344,20 @@ test.describe('touch device', () => {
     await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2025/12/24');
   });
 });
+
+test('the preview backdrop is black or white, whichever contrasts with the text color', async ({ page }) => {
+  const stage = page.getByTestId('preview-stage');
+  const bg = () => stage.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await expect(stage).toHaveAttribute('data-backdrop', '#000000'); // default white text
+  expect(await bg()).toBe('rgb(0, 0, 0)');
+
+  await openAdvanced(page);
+  const color = page.getByLabel('文字色', { exact: true });
+  await color.fill('#000000');
+  await expect(stage).toHaveAttribute('data-backdrop', '#FFFFFF');
+  expect(await bg()).toBe('rgb(255, 255, 255)');
+
+  await color.fill('#FFFF00');
+  await expect(stage).toHaveAttribute('data-backdrop', '#000000');
+  expect(await bg()).toBe('rgb(0, 0, 0)');
+});

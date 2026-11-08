@@ -59,7 +59,7 @@ test('failed job shows a sanitized error and can be retried', async ({ page }) =
   await expect(page.getByTestId('job-item').first()).toHaveAttribute('data-job-id', 'job-retry');
 });
 
-test('completed rows: labelled downloads; 再生して確認 opens the video, settings and editor link', async ({ page }) => {
+test('completed rows: MOV download only; 再生して確認 opens the video, settings and editor link', async ({ page }) => {
   const newer = completed(makeJob({ id: 'job-a', createdAt: '2026-11-08T05:00:00.000Z' }));
   const older = completed(makeJob({ id: 'job-b', createdAt: '2026-11-08T04:00:00.000Z' }));
   await mockApi(page, { list: [newer, older] });
@@ -67,11 +67,13 @@ test('completed rows: labelled downloads; 再生して確認 opens the video, se
 
   const a = page.locator('[data-job-id="job-a"]');
   const b = page.locator('[data-job-id="job-b"]');
-  // Everything starts closed; completed rows show no status word, just downloads.
+  // Everything starts closed; completed rows show no status word, just the MOV download (no MP4 download).
   await expect(page.getByTestId('job-video')).toHaveCount(0);
   await expect(a.getByTestId('job-status')).toHaveCount(0);
   await expect(a.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
-  await expect(a.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
+  await expect(a.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-a/assets/mov?download=1');
+  await expect(page.getByTestId('download-mp4')).toHaveCount(0);
+  await expect(page.locator('a[href*="/assets/mp4"]')).toHaveCount(0);
 
   const toggle = b.getByTestId('job-details-toggle');
   await expect(toggle).toHaveAccessibleName('再生して確認');
@@ -80,6 +82,13 @@ test('completed rows: labelled downloads; 再生して確認 opens the video, se
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(toggle).toHaveAccessibleName('閉じる');
   await expect(b.getByTestId('job-video')).toHaveAttribute('src', '/api/renders/job-b/assets/mp4');
+  await expect(b.getByTestId('job-video')).toHaveAccessibleName('確認用 MP4');
+  await expect(b.locator('a[href*="/assets/mp4"]')).toHaveCount(0); // playback only, still no MP4 download
+  // The video sits centered in the row (the gray card frames it; no extra matte).
+  const player = (await b.getByTestId('job-player').boundingBox())!;
+  const video = (await b.getByTestId('job-video').boundingBox())!;
+  expect(Math.abs(video.x + video.width / 2 - (player.x + player.width / 2))).toBeLessThanOrEqual(1);
+  expect(player.width).toBeGreaterThan(video.width);
   await expect(b.getByTestId('job-details')).toContainText('1920×1080 · 30fps');
   await expect(b.getByRole('link', { name: 'この設定をエディターで開く' })).toHaveAttribute('href', '/?from=job-b');
   await expect(a.getByTestId('job-video')).toHaveCount(0);

@@ -34,7 +34,7 @@ test('the 書き出す button carries the export state: queued → running → c
   await expect(page.getByTestId('export-summary')).toContainText('現在の設定');
   await expect(page.getByTestId('export-notice')).toHaveCount(0);
 
-  // Done: the button is back, with a result group holding the downloads.
+  // Done: the button is back, with a result group holding the MOV download only (the MP4 is not downloadable).
   await expect(button).toHaveText('書き出す', { timeout: 20_000 });
   await expect(button).toBeEnabled();
   await expect(page.getByTestId('export-progress')).toHaveCount(0);
@@ -42,8 +42,8 @@ test('the 書き出す button carries the export state: queued → running → c
   await expect(result).toContainText('書き出しが完了しました');
   await expect(result.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
   await expect(result.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
-  await expect(result.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
-  await expect(result.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
+  await expect(result.getByTestId('download-mp4')).toHaveCount(0);
+  await expect(result.locator('a[href*="/assets/mp4"]')).toHaveCount(0);
 
   // Changing settings keeps the result but marks it as the previous export.
   await page.getByLabel('長さ').fill('12');

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { backdropFor } from '../renderer/backdrop.ts';
   import { loadFont } from '../renderer/fonts.ts';
   import { clampFrameIndex, getDateAtFrame, getTotalFrames } from '../renderer/frames.ts';
   import { renderFrame } from '../renderer/render-frame.ts';
@@ -37,6 +38,8 @@
   const totalFrames = $derived(getTotalFrames(config));
   const frame = $derived(clampFrameIndex(rawFrame, totalFrames));
   const currentDate = $derived(getDateAtFrame(frame, config));
+  /** Black or white behind the text, the same backdrop the MP4 is composited on. */
+  const backdrop = $derived(backdropFor(config.color));
 
   const clock = new PlaybackClock(() => performance.now());
   let rafId = 0;
@@ -129,23 +132,25 @@
 <section class="preview" aria-labelledby="preview-title">
   <h2 id="preview-title" class="visually-hidden">プレビュー</h2>
 
-  <div class="stage">
-    <canvas
-      bind:this={canvas}
-      width={config.width}
-      height={config.height}
-      data-testid="preview-canvas"
-      data-ready={fontState === 'ready' ? 'true' : 'false'}
-      data-font={drawnFont}
-      data-frame={frame}
-      data-date={currentDate}
-      aria-label={`プレビュー: ${currentDate}（フレーム ${frame}）`}
-    ></canvas>
-    {#if fontError}
-      <p class="stage-note error" role="alert">フォントを読み込めませんでした。ページを再読み込みしてください。</p>
-    {:else if drawnFont !== config.fontFamily}
-      <p class="stage-note">フォントを読み込み中…</p>
-    {/if}
+  <div class="frame">
+    <div class="stage" style:background={backdrop} data-backdrop={backdrop} data-testid="preview-stage">
+      <canvas
+        bind:this={canvas}
+        width={config.width}
+        height={config.height}
+        data-testid="preview-canvas"
+        data-ready={fontState === 'ready' ? 'true' : 'false'}
+        data-font={drawnFont}
+        data-frame={frame}
+        data-date={currentDate}
+        aria-label={`プレビュー: ${currentDate}（フレーム ${frame}）`}
+      ></canvas>
+      {#if fontError}
+        <p class="stage-note error" role="alert">フォントを読み込めませんでした。ページを再読み込みしてください。</p>
+      {:else if drawnFont !== config.fontFamily}
+        <p class="stage-note">フォントを読み込み中…</p>
+      {/if}
+    </div>
   </div>
 
   <div class="transport">
@@ -198,7 +203,20 @@
     min-width: 0;
   }
 
-  /* Black backdrop (as in the MP4) is CSS only; the canvas itself stays transparent. */
+  /* Gray matte around the video so its edges show even when the backdrop is white. */
+  .frame {
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--field);
+  }
+
+  @media (max-width: 767px) {
+    .frame {
+      padding: 8px;
+    }
+  }
+
+  /* The black/white backdrop (as in the MP4) is CSS only; the canvas itself stays transparent. */
   .stage {
     position: relative;
     aspect-ratio: 16 / 9;

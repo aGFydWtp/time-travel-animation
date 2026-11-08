@@ -1,6 +1,7 @@
 // Output verification: ffprobe stream checks + decoded-pixel alpha / background checks.
 // Runs inside the container (called by render-entry) and from tests on the host.
 import { open } from 'node:fs/promises';
+import { backdropFor } from '../src/lib/renderer/backdrop.ts';
 import { textWidthEm } from '../src/lib/renderer/fonts.ts';
 import type { RenderConfig } from '../src/lib/renderer/types.ts';
 import { run } from './proc.ts';
@@ -302,11 +303,16 @@ export function checkAlphaFrame(stats: AlphaStats, config: RenderConfig): CheckR
   return results;
 }
 
-/** MP4 corners (outside the text box) must be black after the over-black composite. */
-export function checkMp4Black(rgb: Buffer, config: RenderConfig): CheckResult {
+/**
+ * MP4 corners (outside the text box) must show the backdrop the text was composited over:
+ * black (max channel <= 6) or white (min channel >= 249), allowing limited-range rounding.
+ */
+export function checkMp4Backdrop(rgb: Buffer, config: RenderConfig): CheckResult {
   const { width, height } = config;
+  const backdrop = backdropFor(config.color);
   const box = textBox(config);
   let checked = 0;
+  let min = 255;
   let max = 0;
   for (const c of cornerBoxes(width, height)) {
     if (intersects(c, box)) continue;
@@ -314,11 +320,13 @@ export function checkMp4Black(rgb: Buffer, config: RenderConfig): CheckResult {
     for (let y = c.y0; y < c.y1; y++) {
       for (let x = c.x0; x < c.x1; x++) {
         const i = (y * width + x) * 3;
+        min = Math.min(min, rgb[i], rgb[i + 1], rgb[i + 2]);
         max = Math.max(max, rgb[i], rgb[i + 1], rgb[i + 2]);
       }
     }
   }
-  return check('mp4.backgroundBlack', checked > 0 && max <= 6, `${checked} corners, max channel ${max}`);
+  const ok = checked > 0 && (backdrop === '#FFFFFF' ? min >= 249 : max <= 6);
+  return check('mp4.background', ok, `${checked} corners, channels ${min}..${max} (expected ${backdrop})`);
 }
 
 export interface VerifyReport {
@@ -347,7 +355,7 @@ export async function verifyOutputs(
     extractFrame(paths.mp4, sampleFrame, config.width, config.height, 'rgb24', tools),
   ]);
   const alpha = alphaStats(movRgba, config);
-  checks.push(...checkAlphaFrame(alpha, config), checkMp4Black(mp4Rgb, config));
+  checks.push(...checkAlphaFrame(alpha, config), checkMp4Backdrop(mp4Rgb, config));
 
   return { ok: checks.every((c) => c.ok), checks, mp4, mov, sampleFrame, alpha };
 }

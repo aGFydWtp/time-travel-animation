@@ -77,7 +77,7 @@
   {#if !active}
     <div class="actions">
       {#if assets}
-        <DownloadLinks mov={assets.mov} mp4={assets.mp4} />
+        <DownloadLinks mov={assets.mov} />
       {:else if job.status === 'failed'}
         <button type="button" class="btn-outline" onclick={() => onRetry(job)} disabled={retrying}>
           {retrying ? '書き出し中…' : 'もう一度書き出す'}
@@ -105,15 +105,17 @@
   {#if open && !active}
     <div class="panel" id={panelId} data-testid="job-details">
       {#if assets}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          controls
-          preload="metadata"
-          playsinline
-          src={assets.mp4.url}
-          aria-label="確認用 MP4（黒背景）"
-          data-testid="job-video"
-        ></video>
+        <div class="player" data-testid="job-player">
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video
+            controls
+            preload="metadata"
+            playsinline
+            src={assets.mp4.url}
+            aria-label="確認用 MP4"
+            data-testid="job-video"
+          ></video>
+        </div>
       {/if}
       <p class="settings-line">
         {summarizeOutput(job.config)} · {summarizeStyle(job.config)}
@@ -250,13 +252,20 @@
     gap: 8px;
     justify-items: start;
     width: 100%;
-    max-width: 560px;
     margin-top: 8px;
+  }
+
+  /* The gray card already frames the video (even a white one), so no matte: just center it. */
+  .player {
+    justify-self: stretch;
+    display: grid;
+    place-items: center;
   }
 
   video {
     display: block;
     width: 100%;
+    max-width: 560px;
     aspect-ratio: 16 / 9;
     background: #000;
   }

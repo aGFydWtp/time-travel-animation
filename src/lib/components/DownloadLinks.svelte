@@ -4,28 +4,17 @@
 
   interface Props {
     mov: RenderAssetInfo;
-    mp4: RenderAssetInfo;
   }
 
-  let { mov, mp4 }: Props = $props();
+  // Only the MOV is downloadable; the MP4 is for in-app playback (再生して確認).
+  let { mov }: Props = $props();
 </script>
 
-{#snippet icon()}
-  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10" /></svg>
-{/snippet}
-
-<a class="btn-outline dl primary" href={mov.downloadUrl} download data-testid="download-mov">
-  {@render icon()}透過MOVをダウンロード <span class="size">{formatBytes(mov.bytes)}</span>
-</a>
-<a class="btn-outline dl" href={mp4.downloadUrl} download data-testid="download-mp4">
-  {@render icon()}確認用MP4をダウンロード <span class="size">{formatBytes(mp4.bytes)}</span>
+<a class="btn-outline" href={mov.downloadUrl} download data-testid="download-mov">
+  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10" /></svg>透過MOVをダウンロード <span class="size">{formatBytes(mov.bytes)}</span>
 </a>
 
 <style>
-  .primary {
-    font-weight: 600;
-  }
-
   .size {
     color: var(--muted);
     font-weight: 400;
