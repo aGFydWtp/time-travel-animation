@@ -29,11 +29,12 @@ test('export: queued → running → completed shows one status line with downlo
 
   await expect(status).toHaveAttribute('data-status', 'completed', { timeout: 20_000 });
   await expect(status).toContainText('完了');
-  await expect(status.getByTestId('download-mov')).toHaveText('MOV 362 MB');
+  await expect(status.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
+  await expect(status.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
   await expect(status.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
   await expect(status.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
-  await expect(status.getByRole('link', { name: '履歴を見る →' })).toHaveAttribute('href', '/history');
-  await expect(page.getByText('ProRes 4444')).toBeVisible();
+  await expect(status.getByRole('link', { name: '一覧を見る →' })).toHaveAttribute('href', '/history');
+  await expect(page.getByText('確認用MP4と透過MOVを作成します')).toBeVisible();
 });
 
 test('editing stays possible while an export is running', async ({ page }) => {
@@ -65,7 +66,7 @@ test('failed export shows the reason inline and can be retried', async ({ page }
 
   const status = page.getByTestId('export-job');
   await expect(status).toContainText('失敗：動画のエンコードに失敗しました。');
-  await status.getByRole('button', { name: '再試行' }).click();
+  await status.getByRole('button', { name: 'もう一度書き出す' }).click();
   expect(api.requests.some((r) => r.method === 'POST' && r.path === '/api/renders/job-bad/retry')).toBe(true);
   await expect(status).toContainText('待機中');
 });

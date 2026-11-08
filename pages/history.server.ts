@@ -1,7 +1,7 @@
 import { defineHead } from 'void';
 
 export const head = defineHead(() => ({
-  title: '書き出し履歴 · 日付アニメーション',
+  title: '書き出し一覧 · 日付アニメーション',
   htmlAttrs: { lang: 'ja' },
   meta: [
     {

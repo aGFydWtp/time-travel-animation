@@ -4,7 +4,6 @@
     STAGE_LABELS,
     STATUS_LABELS,
     clampProgress,
-    formatBytes,
     formatShortTimestamp,
     formatTimestamp,
     summarizeOutput,
@@ -12,6 +11,7 @@
     summarizeStyle,
   } from '../ui/format.ts';
   import { isActiveJob } from '../ui/poll.ts';
+  import DownloadLinks from './DownloadLinks.svelte';
 
   interface Props {
     job: RenderJob;
@@ -43,9 +43,7 @@
   data-job-id={job.id}
   aria-labelledby={titleId}
 >
-  <div class="row">
-    <div class="main">
-      <p class="title" id={titleId}>{summarizeRange(job.config)}</p>
+  <p class="title" id={titleId}>{summarizeRange(job.config)}</p>
       <p class="meta">
         <time datetime={job.createdAt} title={formatTimestamp(job.createdAt)}>{formatShortTimestamp(job.createdAt)}</time>
         {#if isCurrent}{' · '}<span data-testid="job-current">今の設定</span>{/if}
@@ -75,35 +73,34 @@
           </span>
         {/if}
       </p>
-    </div>
 
-    {#if !active}
-      <div class="actions">
-        {#if assets}
-          <a class="primary-link" href={assets.mov.downloadUrl} download data-testid="download-mov">
-            MOV {formatBytes(assets.mov.bytes)}
-          </a>
-          <a class="secondary-link" href={assets.mp4.downloadUrl} download data-testid="download-mp4">
-            MP4 {formatBytes(assets.mp4.bytes)}
-          </a>
-        {:else if job.status === 'failed'}
-          <button type="button" class="text strong" onclick={() => onRetry(job)} disabled={retrying}>
-            {retrying ? '再試行中…' : '再試行'}
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="text"
-          onclick={() => (open = !open)}
-          aria-expanded={open}
-          aria-controls={panelId}
-          data-testid="job-details-toggle"
-        >
-          確認
+  {#if !active}
+    <div class="actions">
+      {#if assets}
+        <DownloadLinks mov={assets.mov} mp4={assets.mp4} />
+      {:else if job.status === 'failed'}
+        <button type="button" class="action strong" onclick={() => onRetry(job)} disabled={retrying}>
+          {retrying ? '書き出し中…' : 'もう一度書き出す'}
         </button>
-      </div>
-    {/if}
-  </div>
+      {/if}
+      <button
+        type="button"
+        class="action"
+        onclick={() => (open = !open)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        data-testid="job-details-toggle"
+      >
+        {#if open}
+          閉じる
+        {:else if assets}
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>再生して確認
+        {:else}
+          設定を見る
+        {/if}
+      </button>
+    </div>
+  {/if}
 
   {#if open && !active}
     <div class="panel" id={panelId} data-testid="job-details">
@@ -123,38 +120,22 @@
         {#if job.status === 'failed' && stage}· 停止した段階：{stage}{/if}
         {#if job.expired}· 保存期間が過ぎたためファイルは削除されました{/if}
       </p>
-      <a class="load" href={`/?from=${encodeURIComponent(job.id)}`}>エディターに読み込む</a>
+      <a class="load" href={`/?from=${encodeURIComponent(job.id)}`}>この設定をエディターで開く</a>
     </div>
   {/if}
 </li>
 
 <style>
-  /* Rows are separated by rhythm only; a faint tint on hover, nothing at rest. */
+  /* One job = one plain card (fill only: no border, shadow or edge colour). Not clickable as a whole, so no hover. */
   .job {
     list-style: none;
     display: grid;
-    gap: 8px;
-    padding: 8px;
-    margin: 0 -8px;
-    border-radius: 4px;
+    gap: 2px;
+    justify-items: start;
     min-width: 0;
-  }
-
-  .job:hover {
-    background: var(--row-hover);
-  }
-
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px 16px;
-  }
-
-  .main {
-    flex: 1 1 18rem;
-    min-width: 0;
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--card);
   }
 
   .title {
@@ -218,27 +199,44 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 16px;
-    margin-left: auto;
+    gap: 0 20px;
     font-size: 13px;
   }
 
-  .actions a {
-    text-decoration: none;
+  .action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    padding: 0;
+    background: none;
+    color: var(--ink);
+    font-size: 13px;
   }
 
-  .actions a:hover {
+  .action:hover:not(:disabled) {
+    background: none;
     text-decoration: underline;
   }
 
-  .primary-link {
-    color: var(--ink);
-    font-weight: 600;
+  .icon {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
   }
 
-  .secondary-link {
-    color: var(--muted);
+  /* Phones: one action per line, each a 32px tap row, still directly under its job. */
+  @media (max-width: 639px) {
+    .job {
+      padding: 12px;
+    }
+
+    .actions {
+      flex-direction: column;
+      align-items: flex-start;
+    }
   }
 
   .strong {
@@ -250,6 +248,9 @@
     display: grid;
     gap: 8px;
     justify-items: start;
+    width: 100%;
+    max-width: 560px;
+    margin-top: 8px;
   }
 
   video {
@@ -259,22 +260,6 @@
     background: #000;
   }
 
-  .load {
-    display: inline-flex;
-    align-items: center;
-    min-height: 32px;
-    padding: 4px 16px;
-    border-radius: 4px;
-    background: var(--field);
-    color: var(--ink);
-    font-size: 13px;
-    text-decoration: none;
-  }
-
-  .load:hover {
-    background: var(--subtle);
-  }
-
   .settings-line {
     margin: 0;
     font-size: 13px;
@@ -282,9 +267,20 @@
     overflow-wrap: anywhere;
   }
 
-  @media (max-width: 767px) {
-    .actions a {
-      padding: 10px 4px;
-    }
+  /* White on the grey card so it still reads as a button. */
+  .load {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 4px 16px;
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 13px;
+    text-decoration: none;
+  }
+
+  .load:hover {
+    background: var(--hover);
   }
 </style>

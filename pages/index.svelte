@@ -123,7 +123,7 @@
           </button>
           <span class="muted">{previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒</span>
         </div>
-        <p class="muted" id="export-note">MP4（確認用・黒背景）と透過 MOV（ProRes 4444、サイズ大）を作成します</p>
+        <p class="muted" id="export-note">確認用MP4と透過MOVを作成します</p>
         <div id="export-status" class="status" aria-live="polite">
           {#if errorCount > 0}
             <p class="error">入力内容に {errorCount} 件のエラーがあります</p>

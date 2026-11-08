@@ -12,7 +12,7 @@
     retryingIds: ReadonlySet<string>;
     unavailableIds: ReadonlySet<string>;
     onRetry: (job: RenderJob) => void;
-    /** Heading level for 「書き出し履歴」 (h1 when it is the page's subject). */
+    /** Heading level for 「書き出し一覧」 (h1 when it is the page's subject). */
     headingLevel?: 'h1' | 'h2';
     onLoadMore: () => void;
     onReload: () => void;
@@ -37,7 +37,7 @@
 
 <section class="jobs" aria-labelledby="jobs-title" aria-busy={loading}>
   <div class="jobs-head">
-    <svelte:element this={headingLevel} id="jobs-title" class="section-title">書き出し履歴</svelte:element>
+    <svelte:element this={headingLevel} id="jobs-title" class="section-title">書き出し一覧</svelte:element>
     <button type="button" class="text" onclick={onReload} disabled={loading}>更新</button>
   </div>
 
@@ -77,17 +77,18 @@
     min-width: 0;
   }
 
+  /* 更新 sits right next to the heading it refreshes. */
   .jobs-head {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     gap: 16px;
   }
 
   .list {
     display: grid;
-    gap: 8px;
-    margin: 0;
+    gap: 12px;
+    max-width: 720px;
+    margin: 16px 0 0;
     padding: 0;
   }
 
@@ -105,6 +106,6 @@
 
   .more {
     justify-self: start;
-    margin-top: 8px;
+    margin-top: 24px;
   }
 </style>

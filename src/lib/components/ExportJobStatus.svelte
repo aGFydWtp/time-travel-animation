@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { RenderJob } from '../api/types.ts';
-  import { STAGE_LABELS, clampProgress, formatBytes } from '../ui/format.ts';
+  import { STAGE_LABELS, clampProgress } from '../ui/format.ts';
+  import DownloadLinks from './DownloadLinks.svelte';
 
   interface Props {
     job: RenderJob;
@@ -29,18 +30,17 @@
       <span class="pct">{progress}%</span>
     </span>
   {:else if job.status === 'completed'}
-    <span>完了</span>
+    <span class="done">完了</span>
     {#if assets}
-      · <a class="strong" href={assets.mov.downloadUrl} download data-testid="download-mov">MOV {formatBytes(assets.mov.bytes)}</a>
-      · <a href={assets.mp4.downloadUrl} download data-testid="download-mp4">MP4 {formatBytes(assets.mp4.bytes)}</a>
+      <DownloadLinks mov={assets.mov} mp4={assets.mp4} />
     {/if}
   {:else}
     <span class="failed">失敗：{job.error?.message ?? '書き出しに失敗しました。'}</span>
-    · <button type="button" class="text" onclick={() => onRetry(job)} disabled={retrying}>
-      {retrying ? '再試行中…' : '再試行'}
+    <button type="button" class="text" onclick={() => onRetry(job)} disabled={retrying}>
+      {retrying ? '書き出し中…' : 'もう一度書き出す'}
     </button>
   {/if}
-  · <a class="history" href="/history">履歴を見る →</a>
+  <a class="history" href="/history">一覧を見る →</a>
 </p>
 
 <style>
@@ -48,7 +48,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0 4px;
+    gap: 0 16px;
     margin: 0;
     font-size: 13px;
     color: var(--muted);
@@ -89,19 +89,21 @@
     color: var(--ink);
   }
 
-  a {
+  .history {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
     color: var(--muted);
     text-decoration: none;
   }
 
-  a:hover {
+  .history:hover {
     color: var(--ink);
     text-decoration: underline;
   }
 
-  .strong {
+  .done {
     color: var(--ink);
-    font-weight: 600;
   }
 
   .failed {
@@ -109,17 +111,9 @@
   }
 
   .text {
-    min-height: auto;
+    min-height: 32px;
     padding: 0;
     color: var(--ink);
     font-size: 13px;
-  }
-
-  @media (max-width: 767px) {
-    a,
-    .text {
-      display: inline-block;
-      padding: 10px 4px;
-    }
   }
 </style>

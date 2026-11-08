@@ -6,12 +6,12 @@ import { completed, failed, makeJob, mockApi, openEditor, openHistory, running }
 test('header links switch between the editor and history', async ({ page }) => {
   await mockApi(page);
   await openEditor(page);
-  await page.getByRole('link', { name: '書き出し履歴' }).click();
+  await page.getByRole('link', { name: '書き出し一覧' }).click();
   await expect(page).toHaveURL(/\/history$/);
-  await expect(page.getByRole('heading', { level: 1, name: '書き出し履歴' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '書き出し履歴' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { level: 1, name: '書き出し一覧' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '書き出し一覧' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('まだ書き出していません')).toBeVisible();
-  await expect(page).toHaveTitle('書き出し履歴 · 日付アニメーション');
+  await expect(page).toHaveTitle('書き出し一覧 · 日付アニメーション');
 
   await page.getByRole('link', { name: '日付アニメーション' }).click();
   await expect(page).toHaveURL(/\/$/);
@@ -48,7 +48,7 @@ test('failed job shows a sanitized error and can be retried', async ({ page }) =
   await expect(item.getByTestId('job-status')).toHaveText('失敗');
   await expect(item).toContainText('失敗：動画のエンコードに失敗しました。');
 
-  await item.getByRole('button', { name: '再試行' }).click();
+  await item.getByRole('button', { name: 'もう一度書き出す' }).click();
   expect(api.requests.some((r) => r.method === 'POST' && r.path === '/api/renders/job-failed/retry')).toBe(true);
   const newItem = page.locator('[data-job-id="job-retry"]');
   await expect(newItem.getByTestId('job-status')).toHaveText('待機中');
@@ -56,7 +56,7 @@ test('failed job shows a sanitized error and can be retried', async ({ page }) =
   await expect(page.getByTestId('job-item').first()).toHaveAttribute('data-job-id', 'job-retry');
 });
 
-test('completed rows are compact; 確認 opens the video, settings and load link', async ({ page }) => {
+test('completed rows: labelled downloads; 再生して確認 opens the video, settings and editor link', async ({ page }) => {
   const newer = completed(makeJob({ id: 'job-a', createdAt: '2026-11-08T05:00:00.000Z' }));
   const older = completed(makeJob({ id: 'job-b', createdAt: '2026-11-08T04:00:00.000Z' }));
   await mockApi(page, { list: [newer, older] });
@@ -67,29 +67,31 @@ test('completed rows are compact; 確認 opens the video, settings and load link
   // Everything starts closed; completed rows show no status word, just downloads.
   await expect(page.getByTestId('job-video')).toHaveCount(0);
   await expect(a.getByTestId('job-status')).toHaveCount(0);
-  await expect(a.getByTestId('download-mov')).toHaveText('MOV 362 MB');
-  await expect(a.getByTestId('download-mp4')).toHaveText('MP4 2.3 MB');
+  await expect(a.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
+  await expect(a.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
 
-  const toggle = b.getByRole('button', { name: '確認' });
+  const toggle = b.getByTestId('job-details-toggle');
+  await expect(toggle).toHaveAccessibleName('再生して確認');
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toHaveAccessibleName('閉じる');
   await expect(b.getByTestId('job-video')).toHaveAttribute('src', '/api/renders/job-b/assets/mp4');
   await expect(b.getByTestId('job-details')).toContainText('1920×1080 · 30fps');
-  await expect(b.getByRole('link', { name: 'エディターに読み込む' })).toHaveAttribute('href', '/?from=job-b');
+  await expect(b.getByRole('link', { name: 'この設定をエディターで開く' })).toHaveAttribute('href', '/?from=job-b');
   await expect(a.getByTestId('job-video')).toHaveCount(0);
 
   await toggle.click();
   await expect(page.getByTestId('job-video')).toHaveCount(0);
 });
 
-test('エディターに読み込む opens the editor with that job’s settings', async ({ page }) => {
+test('この設定をエディターで開く opens the editor with that job’s settings', async ({ page }) => {
   const config = { ...DEFAULT_CONFIG, fps: 24 as const, color: '#00FF00', endDate: '2023-07-01' };
   await mockApi(page, { list: [completed(makeJob({ id: 'job-done', config, configHash: 'other-hash' }))] });
   await openHistory(page);
   const item = page.locator('[data-job-id="job-done"]');
-  await item.getByRole('button', { name: '確認' }).click();
-  await item.getByRole('link', { name: 'エディターに読み込む' }).click();
+  await item.getByRole('button', { name: '再生して確認' }).click();
+  await item.getByRole('link', { name: 'この設定をエディターで開く' }).click();
   await expect(page).toHaveURL(/\/\?from=job-done$/);
   await expect(page.getByLabel('FPS', { exact: true })).toHaveValue('24');
   await expect(page.getByLabel('終了日')).toHaveValue('2023-07-01');
@@ -106,7 +108,7 @@ test('expired job shows 期限切れ and no downloads', async ({ page }) => {
   const expired = page.locator('[data-job-id="job-old"]');
   await expect(expired.getByTestId('job-expired')).toHaveText('期限切れ');
   await expect(expired.getByTestId('download-mov')).toHaveCount(0);
-  await expired.getByRole('button', { name: '確認' }).click();
+  await expired.getByRole('button', { name: '設定を見る' }).click();
   await expect(expired.getByTestId('job-video')).toHaveCount(0);
   await expect(expired.getByTestId('job-details')).toContainText('保存期間が過ぎた');
 });
@@ -184,5 +186,19 @@ test.describe('mobile 375×812', () => {
     const group = page.locator('[data-job-id="job-run"] .progress-group');
     const box = (await group.boundingBox())!;
     expect(box.height).toBeLessThan(30);
+
+    // Proximity: a job's actions sit right under its title; the next job starts clearly further down.
+    const ok = page.locator('[data-job-id="job-ok"]');
+    const title = (await ok.locator('.title').boundingBox())!;
+    const action = (await ok.getByTestId('download-mov').boundingBox())!;
+    expect(Math.abs(action.x - title.x)).toBeLessThan(2); // left-aligned in one column
+    const okBox = (await ok.boundingBox())!;
+    const next = (await page.locator('[data-job-id="job-bad"]').boundingBox())!;
+    expect(next.y - (okBox.y + okBox.height)).toBeGreaterThanOrEqual(8); // separate cards
+    const card = await ok.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, border: cs.borderTopWidth, shadow: cs.boxShadow };
+    });
+    expect(card).toEqual({ bg: 'rgb(245, 245, 245)', border: '0px', shadow: 'none' });
   });
 });

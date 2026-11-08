@@ -55,7 +55,7 @@ export class JobTracker {
       this.error = null;
       this.authLost = false;
     } catch (error) {
-      this.error = `書き出し履歴を取得できませんでした。${describeApiError(error)}`;
+      this.error = `書き出し一覧を取得できませんでした。${describeApiError(error)}`;
     } finally {
       this.loading = false;
     }

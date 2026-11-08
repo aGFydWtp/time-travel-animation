@@ -15,7 +15,7 @@
     {:else}
       <p class="brand"><Link href="/">日付アニメーション</Link></p>
     {/if}
-    <Link href="/history" class="nav-link" aria-current={current === 'history' ? 'page' : undefined}>書き出し履歴</Link>
+    <Link href="/history" class="nav-link" aria-current={current === 'history' ? 'page' : undefined}>書き出し一覧</Link>
   </nav>
 </header>
 

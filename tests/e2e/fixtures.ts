@@ -156,7 +156,7 @@ export async function openEditor(page: Page): Promise<void> {
 /** Open /history and wait for the first list response to render. */
 export async function openHistory(page: Page): Promise<void> {
   await page.goto('/history');
-  await page.getByRole('heading', { level: 1, name: '書き出し履歴' }).waitFor();
+  await page.getByRole('heading', { level: 1, name: '書き出し一覧' }).waitFor();
   await page.locator('section[aria-busy="false"]').waitFor();
 }
 
