@@ -4,18 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "pnpm build:container && vite",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:container": "vitest run -c tests/container/vitest.config.ts",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "db:generate": "void db generate",
     "db:migrate": "void db migrate",
     "build:container": "node scripts/build-container.ts",
     "render:local": "node scripts/render-local.ts",
-    "deploy": "void deploy --platform cloudflare",
+    "deploy": "pnpm build:container && void deploy --platform cloudflare",
     "postinstall": "void prepare"
   },
   "dependencies": {

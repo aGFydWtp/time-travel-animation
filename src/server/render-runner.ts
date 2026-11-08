@@ -36,6 +36,11 @@ export const RENDER_TIMEOUT_MS = 12 * 60 * 1000;
 export const SANDBOX_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000;
 /** progress.json をポーリングする間隔 */
 export const PROGRESS_POLL_MS = 5_000;
+/** コンテナの progress（0..100）を API の 1..95 に写す。残りはアップロード（96）と完了（100）。進捗が後戻りしないようにする */
+export const UPLOADING_PROGRESS = 96;
+export function scaleContainerProgress(p: unknown): unknown {
+  return typeof p === 'number' && Number.isFinite(p) ? 1 + (Math.max(0, Math.min(100, p)) * 94) / 100 : p;
+}
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024 * 1024; // R2 単一 put の上限（約 5 GiB）未満に抑える
 
@@ -103,7 +108,7 @@ function startProgressPolling(sandbox: Sandbox, path: string, onProgress?: Progr
       });
       if (stopped) break;
       const p = (await readJson(sandbox, path)) as { stage?: unknown; progress?: unknown } | null;
-      if (p && !stopped) await onProgress({ stage: p.stage, progress: p.progress });
+      if (p && !stopped) await onProgress({ stage: p.stage, progress: scaleContainerProgress(p.progress) });
     }
   })();
   return async () => {
@@ -177,7 +182,7 @@ export async function runRenderInSandbox(
       };
     }
 
-    await onProgress?.({ stage: 'uploading', progress: 95 });
+    await onProgress?.({ stage: 'uploading', progress: UPLOADING_PROGRESS });
     let mp4Bytes: number;
     let movBytes: number;
     try {
