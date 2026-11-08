@@ -7,7 +7,9 @@ Void（Vite + Svelte 5）で作り、Cloudflare Workers にデプロイします
 
 ## 概要
 
-- 開始日、終了日、尺、fps、解像度、イージング、フォント、文字サイズ、色、位置を設定し、Canvas でプレビューできます。
+- 開始日、終了日、尺、fps、解像度、イージング、日付の表示形式、フォント、文字サイズ、色、位置を設定し、Canvas でプレビューできます。
+- 日付の表示形式は `YYYY/MM/DD`（新規編集の既定）、`YYYY.MM.DD`、`YYYY年MM月DD日` の 3 種類です。月と日は常に 2 桁で表示します。`dateFormat` を持たない保存済みの設定（この項目の追加前に作ったジョブ）は `YYYY.MM.DD` として扱います（`src/lib/renderer/types.ts`）。
+- フォントは同梱の 8 書体から選びます：等幅（JetBrains Mono、既定）、ゴシック（Noto Sans JP）、明朝（Noto Serif JP）、丸ゴシック（Zen Maru Gothic）、手書き風（Klee One）、極太（Dela Gothic One）、ドット（DotGothic16）、デジタル（Orbitron のサブセット）。一覧は `src/lib/renderer/fonts.ts` にあります。等幅とデジタルの「年」「月」「日」は Noto Sans JP で補います。すべて SIL Open Font License 1.1 で、出典とクレジットは `assets/fonts/README.md` にあります。
 - 書き出しは非同期ジョブで実行し、次の 2 ファイルを作ります。
   - **preview.mp4**：H.264（yuv420p）、黒背景。確認用。
   - **transparent.mov**：ProRes 4444（アルファ付き）、背景透過。編集ソフトでの合成用。
@@ -19,7 +21,7 @@ Void（Vite + Svelte 5）で作り、Cloudflare Workers にデプロイします
 
 | パス | 画面 | 内容 |
 | --- | --- | --- |
-| `/` | エディター | 開始日、終了日、尺だけを常に表示し、残りの項目は「詳細設定」に折りたたむ。プレビューと、最新の書き出しの状態（進捗、完了時のダウンロード、失敗時の再試行）を同じ画面に表示する |
+| `/` | エディター | 開始日、終了日、尺だけを常に表示し、残りの項目は「詳細設定」に折りたたむ。プレビューと「書き出す」ボタンを同じ画面に置く。書き出し中はボタン自体がジョブの状態を表示し（順番待ちは「待機中…」、描画中は「書き出し中… N%」と進捗の塗り）、完了すると「透過MOVをダウンロード」「確認用MP4をダウンロード」のボタンを、失敗するとエラーの内容を表示する |
 | `/history` | 書き出し一覧 | 自分のジョブを新しい順に表示する。MP4 の再生、ダウンロード、再試行、期限切れの表示、「エディターに読み込む」（`/?from=<jobId>`）に対応 |
 
 プレビューの背景は常に黒です。
@@ -85,6 +87,8 @@ flowchart LR
 - **書き出し一覧**：エディターと同じ画面ではなく、別ページ（`/history`）に置く。
 - **設定項目**：エディターには基本項目（開始日、終了日、尺）だけを表示し、それ以外は「詳細設定」に折りたたむ。
 - **プレビュー背景**：仕様 §4.1 の「市松模様 / 黒」の切り替えは、利用者の要望で削除した。背景は常に黒。
+- **日付の表示形式**：仕様は `YYYY.MM.DD` 固定だが、`YYYY/MM/DD`（新規編集の既定）、`YYYY.MM.DD`、`YYYY年MM月DD日` から選べるようにした。
+- **フォント**：仕様は同梱フォント 1 種類だが、OFL ライセンスの 8 書体から選べるようにした。
 
 設計時の判断の経緯は `claudedocs/design.md` にあります。
 
@@ -92,10 +96,31 @@ flowchart LR
 
 | 項目 | 要件 |
 | --- | --- |
-| Node.js | `^24.22.0 \|\| >=26.12.0`（`package.json` の `engines`） |
-| pnpm | 依存のインストールとスクリプト実行に使用 |
+| Node.js | 26.13.0（`engines` の範囲は `^24.22.0 \|\| >=26.12.0`） |
+| pnpm | 12.18.0（`package.json` の `packageManager`） |
 | Docker | **ローカル開発でも必須**。`pnpm dev` が Sandbox イメージをビルドし、ローカルでもコンテナでレンダリングするため |
 | Cloudflare | デプロイ時のみ。Workers Paid プランと Containers の利用権限が必要（Sandbox が Containers を使う） |
+
+バージョンは `package.json` の次の 3 か所で固定しています。
+
+- `packageManager`（`pnpm@12.18.0`）：pnpm 本体のバージョン。
+- `devEngines.runtime`（Node.js 26.13.0、`onFail: download`）：pnpm がこの Node.js を取得し、`pnpm run`、`pnpm exec`、postinstall をこのバージョンで実行する。
+- `volta.node`（`26.13.0`）：Volta を使う場合に、シェルの `node` をこのバージョンにする。
+
+Volta 2.0.2 では pnpm 12 をプロジェクト単位で固定できません。
+`volta pin pnpm` は `VOLTA_FEATURE_PNPM` を有効にしないと使えず、有効にすると pnpm 12 に無い `bin/pnpm.cjs` を起動しようとして失敗します。
+そのため pnpm はグローバルパッケージとして入れます。
+
+```sh
+volta install pnpm@12.18.0
+```
+
+pnpm 10 のまま `packageManager` による自動切り替えに任せると、macOS では切り替え先の pnpm 12 を起動できません（`ENOEXEC`）。
+また、Volta はグローバルパッケージの子プロセスに、そのパッケージを入れたときの Node.js を渡します。
+スクリプトの Node.js を `devEngines.runtime` で固定しているのはこのためです。
+
+pnpm 11 以降は、公開から 1 日たっていないパッケージを解決しません（`minimumReleaseAge` の既定値）。
+依存を更新した直後の `pnpm install` がこの理由で失敗したら、1 日待つか、そのパッケージを `pnpm-workspace.yaml` の `minimumReleaseAgeExclude` に加えます。
 
 Sandbox イメージはローカルでも Cloudflare と同じ `linux/amd64` でビルド、実行されます。
 Apple Silicon の Mac ではエミュレーションで動くため、ビルドとレンダリングはネイティブより遅くなります。
