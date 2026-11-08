@@ -30,6 +30,11 @@ export class FakeJobStore {
     return row;
   }
 
+  find(id: string): JobRow | null {
+    const r = this.rows.get(id);
+    return r ? { ...r } : null;
+  }
+
   get(id: string): JobRow {
     const r = this.rows.get(id);
     if (!r) throw new Error(`no row ${id}`);
@@ -47,10 +52,11 @@ export class FakeJobStore {
     id: string,
     from: string,
     patch: Partial<JobRow>,
-    opts: { decrementAttempt?: boolean } = {},
+    opts: { decrementAttempt?: boolean; expectUpdatedAt?: string } = {},
   ): Promise<boolean> {
     const r = this.rows.get(id);
     if (!r || r.status !== from) return false;
+    if (opts.expectUpdatedAt !== undefined && r.updatedAt !== opts.expectUpdatedAt) return false;
     Object.assign(r, patch);
     if (opts.decrementAttempt) r.attempt = Math.max(0, r.attempt - 1);
     return true;

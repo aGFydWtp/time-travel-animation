@@ -8,6 +8,7 @@ import { ApiError, handleApi, jsonResponse } from '../../../src/server/errors.ts
 import { toRenderJob } from '../../../src/server/job-state.ts';
 import { listOwnedJobs } from '../../../src/server/jobs-repo.ts';
 import { createRenderJob } from '../../../src/server/jobs-service.ts';
+import { assertStateChangingRequest } from '../../../src/server/request-guard.ts';
 import { parseCreateRequest } from '../../../src/server/request.ts';
 
 export const GET = defineHandler((c) =>
@@ -34,6 +35,7 @@ export const GET = defineHandler((c) =>
 
 export const POST = defineHandler((c) =>
   handleApi('POST /api/renders', async () => {
+    assertStateChangingRequest(c.req, { json: 'required' });
     const { ownerId } = await requireUser(c);
     const req = parseCreateRequest(await c.req.text());
     const result = await createRenderJob(ownerId, req.config, req.idempotencyKey);

@@ -80,6 +80,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   sandbox_unavailable: 'レンダリング環境を起動できませんでした',
   invalid_config: '保存された設定が不正です',
   stale: '処理が中断されました（タイムアウト）',
+  container_lost: 'レンダリング環境が途中で停止しました',
+  stalled: 'レンダリングが応答しなくなりました',
   internal: '内部エラーが発生しました',
 };
 
@@ -133,8 +135,13 @@ export async function ownerHash(ownerId: string): Promise<string> {
     .slice(0, 16);
 }
 
+/** ジョブの成果物を置く R2 プレフィックス（末尾 `/` 付き。list で別ジョブに前方一致しないように） */
+export async function assetPrefix(ownerId: string, jobId: string): Promise<string> {
+  return `renders/${await ownerHash(ownerId)}/${jobId}/`;
+}
+
 export async function assetKeys(ownerId: string, jobId: string) {
-  const prefix = `renders/${await ownerHash(ownerId)}/${jobId}`;
+  const prefix = (await assetPrefix(ownerId, jobId)).slice(0, -1);
   return {
     mp4: `${prefix}/${ASSET_SPECS.mp4.fileName}`,
     mov: `${prefix}/${ASSET_SPECS.mov.fileName}`,
@@ -363,6 +370,16 @@ export function progressPatch(stage: unknown, progress: unknown, now: Date) {
     progress: Math.max(0, Math.min(99, Math.round(p))),
     updatedAt: now.toISOString(),
   };
+}
+
+/** poll の生存確認だけ（stage/progress は変えない） */
+export function touchPatch(now: Date) {
+  return { updatedAt: now.toISOString() };
+}
+
+/** アップロード担当の取得（updated_at の CAS と組み合わせて 1 つの poll だけが取る） */
+export function uploadClaimPatch(progress: number, now: Date) {
+  return { stage: 'uploading', progress, updatedAt: now.toISOString() } as const;
 }
 
 export function parseRetentionDays(raw: string | undefined, def: number): number {

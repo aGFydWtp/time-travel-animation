@@ -99,15 +99,18 @@ export async function updateJobIfStatus(
   id: string,
   from: JobRow['status'],
   patch: Patch,
-  opts: { decrementAttempt?: boolean } = {},
+  opts: { decrementAttempt?: boolean; expectUpdatedAt?: string } = {},
 ): Promise<boolean> {
   const set = opts.decrementAttempt
     ? { ...patch, attempt: sql`max(${renderJobs.attempt} - 1, 0)` }
     : patch;
+  const where = [eq(renderJobs.id, id), eq(renderJobs.status, from)];
+  // poll 連鎖・アップロード担当の排他: 読んだ時点の updated_at から変わっていなければ更新する
+  if (opts.expectUpdatedAt !== undefined) where.push(eq(renderJobs.updatedAt, opts.expectUpdatedAt));
   const rows = await db
     .update(renderJobs)
     .set(set)
-    .where(and(eq(renderJobs.id, id), eq(renderJobs.status, from)))
+    .where(and(...where))
     .returning({ id: renderJobs.id });
   return rows.length > 0;
 }
@@ -155,4 +158,37 @@ export async function markJobExpired(id: string, nowIso: string): Promise<void> 
     .update(renderJobs)
     .set({ expired: 1, updatedAt: nowIso })
     .where(and(eq(renderJobs.id, id), eq(renderJobs.status, 'completed')));
+}
+
+/** poll 連鎖が切れたかもしれない running（updated_at が before より古く、stale の閾値 staleBefore よりは新しい） */
+export async function findRunningUpdatedBetween(staleBeforeIso: string, beforeIso: string, limit: number) {
+  return db
+    .select({ id: renderJobs.id })
+    .from(renderJobs)
+    .where(
+      and(eq(renderJobs.status, 'running'), lt(renderJobs.updatedAt, beforeIso), gte(renderJobs.updatedAt, staleBeforeIso)),
+    )
+    .orderBy(asc(renderJobs.updatedAt))
+    .limit(limit);
+}
+
+/** R2 の掃除がまだの failed（updated_at < before） */
+export async function findFailedUncleaned(beforeIso: string, limit: number) {
+  return db
+    .select({ id: renderJobs.id, ownerId: renderJobs.ownerId, mp4Key: renderJobs.mp4Key, movKey: renderJobs.movKey })
+    .from(renderJobs)
+    .where(and(eq(renderJobs.status, 'failed'), eq(renderJobs.expired, 0), lt(renderJobs.updatedAt, beforeIso)))
+    .orderBy(asc(renderJobs.updatedAt))
+    .limit(limit);
+}
+
+/**
+ * failed の R2 掃除済みを記録する（expired=1 を「R2 の成果物を削除済み」の印として流用。
+ * failed の API 表示は expired を見ないので影響しない）。updated_at は失敗時刻のまま残す。
+ */
+export async function markFailedJobCleaned(id: string): Promise<void> {
+  await db
+    .update(renderJobs)
+    .set({ expired: 1, mp4Key: null, movKey: null })
+    .where(and(eq(renderJobs.id, id), eq(renderJobs.status, 'failed')));
 }

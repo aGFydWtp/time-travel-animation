@@ -21,13 +21,18 @@ export interface CreateResult {
 /** Queue へ送る。失敗してもジョブは queued のまま残し、cron（sweep）が再送する。 */
 export async function enqueueRender(jobId: string): Promise<boolean> {
   try {
-    await queues.render.send({ jobId });
+    await queues.render.send({ type: 'start', jobId });
     logEvent('render.enqueued', { jobId });
     return true;
   } catch (err) {
     logEvent('render.enqueue_failed', { jobId, error: errorSummary(err) });
     return false;
   }
+}
+
+/** poll メッセージを遅延送信する。失敗は例外のまま返す（consumer がメッセージを再配信させる / cron が再送する） */
+export async function enqueuePoll(jobId: string, delaySeconds: number): Promise<void> {
+  await queues.render.send({ type: 'poll', jobId }, { delaySeconds });
 }
 
 async function decide(ownerId: string, configHash: string, idempotencyKey: string | null, now: Date) {

@@ -97,8 +97,13 @@ async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
 
 let progressChain: Promise<void> = Promise.resolve();
 
+let lastStage = 'starting';
+let lastPct = 0;
+
 /** Throttled (500 ms unless forced) and serialized progress.json writes. */
 function progress(stageName: string, pct: number, force = false): Promise<void> {
+  lastStage = stageName;
+  lastPct = pct;
   const now = Date.now();
   if (!force && now - lastProgressWrite < 500) return progressChain;
   lastProgressWrite = now;
@@ -111,6 +116,26 @@ function progress(stageName: string, pct: number, force = false): Promise<void> 
     .catch(() => undefined)
     .then(() => writeJsonAtomic(join(outDir, 'progress.json'), data));
   return progressChain;
+}
+
+/**
+ * Heartbeat: progress.json's updatedAt is refreshed at least every HEARTBEAT_MS even when the stage
+ * reports nothing (browser start, long ffmpeg passes, verify). The Worker polls it to tell a live
+ * render from a dead container.
+ */
+const HEARTBEAT_MS = 5_000;
+let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+function startHeartbeat(): void {
+  heartbeat = setInterval(() => {
+    if (Date.now() - lastProgressWrite >= HEARTBEAT_MS) void progress(lastStage, lastPct, true).catch(() => undefined);
+  }, HEARTBEAT_MS);
+  heartbeat.unref();
+}
+
+function stopHeartbeat(): void {
+  if (heartbeat) clearInterval(heartbeat);
+  heartbeat = undefined;
 }
 
 // ---------------------------------------------------------------- browser
@@ -243,6 +268,7 @@ async function main(): Promise<void> {
   outDir = args.out;
   await stage('IO_ERROR', () => mkdir(outDir, { recursive: true }));
   await progress('starting', 0, true);
+  startHeartbeat();
 
   const config = await stage('INVALID_CONFIG', async () =>
     parseRenderConfig(JSON.parse(await readFile(args.config, 'utf8'))),
@@ -355,6 +381,7 @@ async function main(): Promise<void> {
     }
     await progress('done', 100, true);
   } finally {
+    stopHeartbeat();
     if (browser) await browser.close().catch(() => undefined);
     // PNG intermediates never outlive the job (stills are the requested output and stay).
     const scratch = ownWork ? work : stills ? null : framesDir;

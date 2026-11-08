@@ -1,11 +1,20 @@
-// ジョブ専用 Sandbox でのレンダリングと R2 への保存（Void API を使う唯一の場所）。
+// ジョブ専用 Sandbox の操作と R2 への保存（Void API を使う唯一の場所）。手順は render-processor.ts。
 // Sandbox には R2/D1 のバインディングが無いため、Worker（Queue consumer）がファイルを取り出して R2 に put する。
 import { UsageLimit } from 'void/limits';
 import { getSandbox, SandboxLimitError } from 'void/sandbox';
 import { storage } from 'void/storage';
 import type { RenderConfig } from '../lib/renderer/index.ts';
+import { SANDBOX_INACTIVITY_TIMEOUT_MS } from './constants.ts';
 import { errorSummary, logEvent } from './log.ts';
-import type { AssetKeys, ProgressCallback, RunResult } from './render-processor.ts';
+import {
+  isSandboxFileNotFound,
+  type ContainerProgress,
+  type ContainerResult,
+  type FileRead,
+  type RenderBackend,
+  type SandboxStatus,
+} from './render-processor.ts';
+import { isJobId } from './render-messages.ts';
 
 // ---------------------------------------------------------------------------
 // コンテナ契約（container/** と Dockerfile.sandbox 側と合わせる。変更はここだけで済むようにする）
@@ -25,22 +34,26 @@ export const CONTAINER_CONTRACT = {
     mov: 'transparent.mov',
     /** `{ ok, errorCode?, message?, totalFrames, mp4: { bytes }, mov: { bytes }, verification }` */
     result: 'result.json',
-    /** `{ stage, progress }` */
+    /** `{ stage, progress, updatedAt }`。updatedAt は数秒毎に更新されるハートビート */
     progress: 'progress.json',
   },
+  /** render-entry の stdout/stderr（作業ディレクトリ直下） */
+  log: 'render.log',
 } as const;
 
-/** sandbox.run() の上限。Queue consumer の壁時計 15 分に収める（アップロード分を残す） */
-export const RENDER_TIMEOUT_MS = 12 * 60 * 1000;
-/** 無操作でコンテナが止まるまでの時間 */
-export const SANDBOX_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000;
-/** progress.json をポーリングする間隔 */
-export const PROGRESS_POLL_MS = 5_000;
-/** コンテナの progress（0..100）を API の 1..95 に写す。残りはアップロード（96）と完了（100）。進捗が後戻りしないようにする */
-export const UPLOADING_PROGRESS = 96;
-export function scaleContainerProgress(p: unknown): unknown {
-  return typeof p === 'number' && Number.isFinite(p) ? 1 + (Math.max(0, Math.min(100, p)) * 94) / 100 : p;
-}
+/**
+ * render-entry を切り離して起動する sh スクリプト。パス類は位置引数（$1..$4）で渡し、文字列連結しない。
+ * nohup（+ あれば setsid）で親の sh が終わっても走り続け、PID を返す。
+ */
+const LAUNCH_SCRIPT = [
+  'S=""',
+  'command -v setsid >/dev/null 2>&1 && S=setsid',
+  'nohup $S node "$1" --config "$2" --out "$3" >"$4" 2>&1 </dev/null &',
+  'echo $!',
+].join('\n');
+
+/** 起動コマンド自体（sh が戻るまで）の上限 */
+const LAUNCH_TIMEOUT_MS = 60_000;
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024 * 1024; // R2 単一 put の上限（約 5 GiB）未満に抑える
 
@@ -51,33 +64,46 @@ export function isUsageLimitError(err: unknown): boolean {
 
 type Sandbox = Awaited<ReturnType<typeof getSandbox>>;
 
-interface ContainerResult {
-  ok: boolean;
-  errorCode?: unknown;
-  message?: unknown;
-  totalFrames?: unknown;
-  mp4?: { bytes?: unknown };
-  mov?: { bytes?: unknown };
-  verification?: unknown;
+function paths(jobId: string) {
+  // jobId はサーバーが発行した UUID。パスとサンドボックス ID に入るので必ず検証する
+  if (!isJobId(jobId)) throw new Error('invalid job id');
+  const workDir = CONTAINER_CONTRACT.workDir(jobId);
+  const outDir = `${workDir}/out`;
+  return {
+    workDir,
+    outDir,
+    cfgPath: `${workDir}/config.json`,
+    logPath: `${workDir}/${CONTAINER_CONTRACT.log}`,
+    out: (name: string) => `${outDir}/${name}`,
+  };
+}
+
+function openSandbox(jobId: string): Promise<Sandbox> {
+  return getSandbox(`job-${jobId}`, {
+    inactivityTimeoutMs: SANDBOX_INACTIVITY_TIMEOUT_MS,
+    labels: { job: jobId },
+  });
 }
 
 const decoder = new TextDecoder();
-const tail = (buf: ArrayBuffer, max = 500) => {
-  const s = decoder.decode(buf);
-  return s.length > max ? s.slice(-max) : s;
-};
 
-async function readJson(sandbox: Sandbox, path: string): Promise<unknown | null> {
+async function readJsonFile<T>(sandbox: Sandbox, path: string): Promise<FileRead<T>> {
+  let text: string;
   try {
     const res = await sandbox.files.readFile(path);
-    return JSON.parse(await res.text()) as unknown;
-  } catch {
-    return null;
+    text = await res.text();
+  } catch (err) {
+    if (isSandboxFileNotFound(err)) return { kind: 'missing' };
+    return { kind: 'error', detail: errorSummary(err) };
   }
-}
-
-function isTimeout(err: unknown): boolean {
-  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (!value || typeof value !== 'object') return { kind: 'error', detail: 'not a JSON object' };
+    return { kind: 'ok', value: value as T };
+  } catch {
+    // アトミックに書いているので通常は起きない。次の poll で読み直す
+    return { kind: 'error', detail: 'invalid JSON' };
+  }
 }
 
 /** stat した長さで FixedLengthStream に流して R2 に put（長さ不明ストリームは R2 に拒否される）。同じキーへの上書きなので冪等。 */
@@ -95,129 +121,58 @@ async function uploadFile(sandbox: Sandbox, path: string, key: string, contentTy
   return size;
 }
 
-function startProgressPolling(sandbox: Sandbox, path: string, onProgress?: ProgressCallback) {
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let wake: (() => void) | undefined;
-  const loop = (async () => {
-    if (!onProgress) return;
-    while (!stopped) {
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-        timer = setTimeout(resolve, PROGRESS_POLL_MS);
-      });
-      if (stopped) break;
-      const p = (await readJson(sandbox, path)) as { stage?: unknown; progress?: unknown } | null;
-      if (p && !stopped) await onProgress({ stage: p.stage, progress: scaleContainerProgress(p.progress) });
-    }
-  })();
-  return async () => {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    wake?.();
-    await loop.catch(() => undefined);
-  };
-}
-
-/**
- * ジョブ専用 Sandbox で `render-entry.mjs` を実行し、MP4/MOV と metadata.json を R2 に保存する。
- * Sandbox の利用上限（UsageLimit）だけは呼び出し側で再キューするため例外のまま投げる。
- */
-export async function runRenderInSandbox(
-  jobId: string,
-  config: RenderConfig,
-  keys: AssetKeys,
-  onProgress?: ProgressCallback,
-): Promise<RunResult> {
-  const started = Date.now();
-  const workDir = CONTAINER_CONTRACT.workDir(jobId);
-  const outDir = `${workDir}/out`;
-  const cfgPath = `${workDir}/config.json`;
-  const outPath = (name: string) => `${outDir}/${name}`;
-
-  let sandbox: Sandbox | undefined;
-  try {
-    sandbox = await getSandbox(`job-${jobId}`, {
-      inactivityTimeoutMs: SANDBOX_INACTIVITY_TIMEOUT_MS,
-      labels: { job: jobId },
-    });
-
-    await sandbox.files.mkdir(outDir, { recursive: true });
+export const sandboxBackend: RenderBackend = {
+  async launch(jobId: string, config: RenderConfig): Promise<void> {
+    const p = paths(jobId);
+    const sandbox = await openSandbox(jobId);
+    await sandbox.files.mkdir(p.outDir, { recursive: true });
     // 設定は JSON ファイルとして渡す（シェル文字列に連結しない）
-    await sandbox.files.writeFile(cfgPath, JSON.stringify(config));
-    await onProgress?.({ stage: 'starting', progress: 1 });
-
-    const stopPolling = startProgressPolling(sandbox, outPath(CONTAINER_CONTRACT.outputs.progress), onProgress);
-    let exitCode: number;
-    let stderrTail = '';
-    try {
-      const out = await sandbox.run(CONTAINER_CONTRACT.buildArgv(cfgPath, outDir), {
-        cwd: workDir,
-        signal: AbortSignal.timeout(RENDER_TIMEOUT_MS),
-      });
-      exitCode = out.exitCode;
-      stderrTail = tail(out.stderr);
-    } finally {
-      await stopPolling();
-    }
-
-    const result = (await readJson(sandbox, outPath(CONTAINER_CONTRACT.outputs.result))) as ContainerResult | null;
-    logEvent('render.sandbox_exit', {
-      jobId,
-      exitCode,
-      durationMs: Date.now() - started,
-      resultOk: result?.ok ?? null,
-      totalFrames: typeof result?.totalFrames === 'number' ? result.totalFrames : null,
-      stderrTail: exitCode !== 0 ? stderrTail : undefined,
+    await sandbox.files.writeFile(p.cfgPath, JSON.stringify(config));
+    const out = await sandbox.run(['sh', '-c', LAUNCH_SCRIPT, 'render-launch', CONTAINER_ENTRY, p.cfgPath, p.outDir, p.logPath], {
+      cwd: p.workDir,
+      signal: AbortSignal.timeout(LAUNCH_TIMEOUT_MS),
     });
-
-    if (!result || typeof result.ok !== 'boolean') {
-      return { ok: false, errorCode: exitCode === 0 ? 'invalid_output' : 'render_failed', message: `exit ${exitCode}` };
+    const stdout = decoder.decode(out.stdout).trim();
+    if (out.exitCode !== 0 || !/^\d+$/.test(stdout)) {
+      throw new Error(`launch failed: exit ${out.exitCode} ${decoder.decode(out.stderr).slice(-300)}`);
     }
-    if (!result.ok || exitCode !== 0) {
-      return {
-        ok: false,
-        errorCode: typeof result.errorCode === 'string' ? result.errorCode : 'render_failed',
-        message: typeof result.message === 'string' ? result.message.slice(0, 300) : `exit ${exitCode}`,
-      };
-    }
+    logEvent('render.process_started', { jobId, pid: Number(stdout) });
+  },
 
-    await onProgress?.({ stage: 'uploading', progress: UPLOADING_PROGRESS });
-    let mp4Bytes: number;
-    let movBytes: number;
-    try {
-      mp4Bytes = await uploadFile(sandbox, outPath(CONTAINER_CONTRACT.outputs.mp4), keys.mp4, 'video/mp4');
-      movBytes = await uploadFile(sandbox, outPath(CONTAINER_CONTRACT.outputs.mov), keys.mov, 'video/quicktime');
-      const metadata = {
-        jobId,
-        config,
-        totalFrames: result.totalFrames ?? null,
-        verification: result.verification ?? null,
-        mp4: { key: keys.mp4, bytes: mp4Bytes, contentType: 'video/mp4' },
-        mov: { key: keys.mov, bytes: movBytes, contentType: 'video/quicktime' },
-        renderedAt: new Date().toISOString(),
-      };
-      await storage.put(keys.metadata, JSON.stringify(metadata, null, 2), {
-        httpMetadata: { contentType: 'application/json' },
-      });
-    } catch (err) {
-      if (isUsageLimitError(err)) throw err;
-      logEvent('render.upload_failed', { jobId, error: errorSummary(err) });
-      await storage.delete([keys.mp4, keys.mov, keys.metadata]).catch(() => undefined);
-      return { ok: false, errorCode: 'upload_failed', message: errorSummary(err) };
-    }
+  async readStatus(jobId: string): Promise<SandboxStatus> {
+    const p = paths(jobId);
+    const sandbox = await openSandbox(jobId);
+    // result を先に読む（render-entry は result.json → progress.json の順に書く）
+    const result = await readJsonFile<ContainerResult>(sandbox, p.out(CONTAINER_CONTRACT.outputs.result));
+    const progress = await readJsonFile<ContainerProgress>(sandbox, p.out(CONTAINER_CONTRACT.outputs.progress));
+    return { result, progress };
+  },
 
+  async upload({ jobId, config, keys, result }) {
+    const p = paths(jobId);
+    const sandbox = await openSandbox(jobId);
+    const started = Date.now();
+    const mp4Bytes = await uploadFile(sandbox, p.out(CONTAINER_CONTRACT.outputs.mp4), keys.mp4, 'video/mp4');
+    const movBytes = await uploadFile(sandbox, p.out(CONTAINER_CONTRACT.outputs.mov), keys.mov, 'video/quicktime');
+    const metadata = {
+      jobId,
+      config,
+      totalFrames: result.totalFrames ?? null,
+      verification: result.verification ?? null,
+      mp4: { key: keys.mp4, bytes: mp4Bytes, contentType: 'video/mp4' },
+      mov: { key: keys.mov, bytes: movBytes, contentType: 'video/quicktime' },
+      renderedAt: new Date().toISOString(),
+    };
+    await storage.put(keys.metadata, JSON.stringify(metadata, null, 2), {
+      httpMetadata: { contentType: 'application/json' },
+    });
     logEvent('render.uploaded', { jobId, mp4Bytes, movBytes, durationMs: Date.now() - started });
-    return { ok: true, mp4: { bytes: mp4Bytes }, mov: { bytes: movBytes } };
-  } catch (err) {
-    if (isUsageLimitError(err)) throw err;
-    logEvent('render.sandbox_error', { jobId, error: errorSummary(err), durationMs: Date.now() - started });
-    return { ok: false, errorCode: isTimeout(err) ? 'timeout' : 'render_failed', message: errorSummary(err) };
-  } finally {
-    if (sandbox) {
-      await sandbox.destroy().catch((err: unknown) => {
-        logEvent('render.sandbox_destroy_failed', { jobId, error: errorSummary(err) });
-      });
-    }
-  }
-}
+    return { mp4Bytes, movBytes };
+  },
+
+  async destroy(jobId: string): Promise<void> {
+    if (!isJobId(jobId)) return;
+    const sandbox = await openSandbox(jobId);
+    await sandbox.destroy();
+  },
+};

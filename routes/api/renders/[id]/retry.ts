@@ -6,10 +6,13 @@ import { ApiError, handleApi, jsonResponse } from '../../../../src/server/errors
 import { findOwnedJob } from '../../../../src/server/jobs-repo.ts';
 import { createRenderJob } from '../../../../src/server/jobs-service.ts';
 import { logEvent } from '../../../../src/server/log.ts';
+import { assertStateChangingRequest } from '../../../../src/server/request-guard.ts';
 import { requireJobId } from '../../../../src/server/request.ts';
 
 export const POST = defineHandler((c) =>
   handleApi('POST /api/renders/:id/retry', async () => {
+    // ボディ無しの POST（UI は Content-Type を付けない）。同一オリジン検査のみ
+    assertStateChangingRequest(c.req, { json: 'if-present' });
     const { ownerId } = await requireUser(c);
     const id = requireJobId(c.req.param('id'));
     const row = await findOwnedJob(id, ownerId);

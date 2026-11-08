@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { toRenderJob } from '../../../src/server/job-state.ts';
-import { metadataKeyFor, runSweep, type SweepDeps } from '../../../src/server/sweep.ts';
+import { assetPrefix } from '../../../src/server/job-state.ts';
+import { failedCleanupKeys, metadataKeyFor, runSweep, type SweepDeps } from '../../../src/server/sweep.ts';
 import { FakeJobStore, makeJob } from './fake-store.ts';
 
 const NOW = new Date('2026-11-08T12:00:00.000Z');
@@ -11,6 +12,10 @@ function setup(sendImpl: (id: string) => Promise<void> = async () => undefined) 
   const store = new FakeJobStore();
   const deleted: string[] = [];
   const send = vi.fn(sendImpl);
+  const sendPoll = vi.fn(async (_id: string) => undefined);
+  const destroyed: string[] = [];
+  /** R2 の中身（キー一覧） */
+  const objects = new Set<string>();
   const rows = () => [...store.rows.values()];
   const deps: SweepDeps = {
     now: () => NOW,
@@ -20,6 +25,14 @@ function setup(sendImpl: (id: string) => Promise<void> = async () => undefined) 
         .slice(0, limit),
     touchQueued: (id, updatedAt) => store.updateIf(id, 'queued', { updatedAt }),
     send,
+    findPollStalled: async (staleBefore, before, limit) =>
+      rows()
+        .filter((r) => r.status === 'running' && r.updatedAt < before && r.updatedAt >= staleBefore)
+        .slice(0, limit),
+    sendPoll,
+    destroySandbox: async (id) => {
+      destroyed.push(id);
+    },
     failStaleRunning: async (before, patch, limit) => {
       const ids: string[] = [];
       for (const r of rows().filter((r) => r.status === 'running' && r.updatedAt < before).slice(0, limit)) {
@@ -33,13 +46,22 @@ function setup(sendImpl: (id: string) => Promise<void> = async () => undefined) 
         .slice(0, limit),
     deleteObjects: async (keys) => {
       deleted.push(...keys);
+      for (const k of keys) objects.delete(k);
+    },
+    findFailedUncleaned: async (before, limit) =>
+      rows()
+        .filter((r) => r.status === 'failed' && r.expired === 0 && r.updatedAt < before)
+        .slice(0, limit),
+    listObjects: async (prefix) => ({ keys: [...objects].filter((k) => k.startsWith(prefix)), truncated: false }),
+    markFailedCleaned: async (id) => {
+      await store.updateIf(id, 'failed', { expired: 1, mp4Key: null, movKey: null });
     },
     markExpired: async (id, ts) => {
       await store.updateIf(id, 'completed', { expired: 1, updatedAt: ts });
     },
     log: vi.fn(),
   };
-  return { store, deps, send, deleted };
+  return { store, deps, send, sendPoll, deleted, destroyed, objects };
 }
 
 describe('runSweep', () => {
@@ -87,6 +109,62 @@ describe('runSweep', () => {
     expect(store.get(live.id).status).toBe('running');
   });
 
+  it('destroys the sandbox of jobs failed as stale', async () => {
+    const { store, deps, destroyed } = setup();
+    const stale = store.add(makeJob({ status: 'running', updatedAt: ago(21 * MIN) }));
+    await runSweep(deps);
+    expect(destroyed).toEqual([stale.id]);
+  });
+
+  it('re-sends a poll for running jobs whose poll chain broke (2-20 min without update) only', async () => {
+    const { store, deps, sendPoll } = setup();
+    const broken = store.add(makeJob({ status: 'running', updatedAt: ago(3 * MIN) }));
+    store.add(makeJob({ status: 'running', updatedAt: ago(30 * 1000) }));
+    store.add(makeJob({ status: 'running', updatedAt: ago(25 * MIN) }));
+
+    const report = await runSweep(deps);
+
+    expect(sendPoll.mock.calls).toEqual([[broken.id]]);
+    expect(report.pollResent).toBe(1);
+    expect(store.get(broken.id).status).toBe('running');
+  });
+
+  it('cleans the R2 prefix of jobs failed over an hour ago and flags them cleaned (once)', async () => {
+    const { store, deps, deleted, objects } = setup();
+    const old = store.add(makeJob({ status: 'failed', errorCode: 'stale', updatedAt: ago(61 * MIN) }));
+    const recent = store.add(makeJob({ status: 'failed', updatedAt: ago(10 * MIN) }));
+    const done = store.add(makeJob({ status: 'completed', updatedAt: ago(2 * 60 * MIN), expiresAt: ago(-MIN) }));
+    const oldPrefix = await assetPrefix(old.ownerId, old.id);
+    const recentPrefix = await assetPrefix(recent.ownerId, recent.id);
+    const donePrefix = await assetPrefix(done.ownerId, done.id);
+    for (const p of [oldPrefix, recentPrefix, donePrefix]) {
+      objects.add(`${p}preview.mp4`);
+      objects.add(`${p}transparent.mov`);
+    }
+    objects.add(`${oldPrefix}metadata.json`);
+
+    const report = await runSweep(deps);
+
+    expect(report.failedCleaned).toBe(1);
+    expect(deleted.sort()).toEqual([`${oldPrefix}metadata.json`, `${oldPrefix}preview.mp4`, `${oldPrefix}transparent.mov`]);
+    expect(store.get(old.id)).toMatchObject({ status: 'failed', expired: 1, mp4Key: null, movKey: null });
+    expect(toRenderJob(store.get(old.id), NOW)).toMatchObject({ status: 'failed', expired: false, error: { code: 'stale' } });
+    expect(store.get(recent.id).expired).toBe(0);
+    expect([...objects].filter((k) => k.startsWith(donePrefix))).toHaveLength(2);
+
+    // 2 回目は対象外
+    const again = await runSweep(deps);
+    expect(again.failedCleaned).toBe(0);
+  });
+
+  it('does not flag a failed job cleaned while the listing is truncated', async () => {
+    const { store, deps } = setup();
+    const job = store.add(makeJob({ status: 'failed', updatedAt: ago(2 * 60 * MIN) }));
+    deps.listObjects = async () => ({ keys: [], truncated: true });
+    expect((await runSweep(deps)).failedCleaned).toBe(0);
+    expect(store.get(job.id).expired).toBe(0);
+  });
+
   it('deletes R2 objects of expired completed jobs and flags them expired', async () => {
     const { store, deps, deleted } = setup();
     const prefix = 'renders/0123456789abcdef/job';
@@ -116,6 +194,18 @@ describe('runSweep', () => {
     const dto = toRenderJob(store.get(expired.id), NOW);
     expect(dto).toMatchObject({ status: 'completed', expired: true, assets: null });
     expect(toRenderJob(store.get(valid.id), NOW).assets).not.toBeNull();
+  });
+
+  it('failedCleanupKeys unions recorded and listed keys but never leaves the job prefix', () => {
+    const prefix = 'renders/abc/job-1/';
+    expect(
+      failedCleanupKeys(
+        prefix,
+        { mp4Key: `${prefix}preview.mp4`, movKey: null },
+        [`${prefix}transparent.mov`, `${prefix}preview.mp4`, 'renders/abc/job-10/preview.mp4', 'renders/other/x', prefix],
+      ).sort(),
+    ).toEqual([`${prefix}metadata.json`, `${prefix}preview.mp4`, `${prefix}transparent.mov`]);
+    expect(failedCleanupKeys('renders/abc/job-1', { mp4Key: null, movKey: null }, ['renders/abc/job-1/x'])).toEqual([]);
   });
 
   it('derives the metadata key from the mp4 key', () => {
