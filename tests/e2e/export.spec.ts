@@ -68,7 +68,7 @@ test('editing stays possible while an export is running', async ({ page }) => {
 
   await page.getByLabel('終了日').fill('2022/12/31');
   await page.getByTestId('seek').fill('299');
-  await expect(page.getByTestId('current-date')).toHaveText('2022/12/31');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2022/12/31');
   await expect(page.getByTestId('export-summary')).toContainText('（書き出し中の設定とは異なります）');
   await expect(page.getByTestId('export-button')).toBeDisabled();
 });

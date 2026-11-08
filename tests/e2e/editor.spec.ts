@@ -39,25 +39,27 @@ test('canvas uses the output resolution and redraws on settings change', async (
 });
 
 test('seek 0% shows the start date and 100% shows the end date', async ({ page }) => {
-  const date = page.getByTestId('current-date');
+  const date = page.getByTestId('preview-canvas');
   const seek = page.getByTestId('seek');
 
-  await expect(date).toHaveText('2026/03/06');
+  await expect(date).toHaveAttribute('data-date', '2026/03/06');
   await seek.fill('299');
-  await expect(date).toHaveText('2020/01/01');
-  await expect(page.getByTestId('frame-counter')).toHaveText('299 / 299');
+  await expect(date).toHaveAttribute('data-date', '2020/01/01');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-frame', '299');
   await seek.fill('0');
-  await expect(date).toHaveText('2026/03/06');
+  await expect(date).toHaveAttribute('data-date', '2026/03/06');
 
   await page.getByRole('button', { name: '末尾へ' }).click();
-  await expect(date).toHaveText('2020/01/01');
+  await expect(date).toHaveAttribute('data-date', '2020/01/01');
   await page.getByRole('button', { name: '先頭へ' }).click();
-  await expect(date).toHaveText('2026/03/06');
+  await expect(date).toHaveAttribute('data-date', '2026/03/06');
   await expect(page.getByTestId('time-counter')).toHaveText('00:00.00 / 00:10.00');
+  // Only the time is shown under the preview (no date or frame count).
+  await expect(page.getByTestId('time-counter').locator('xpath=..')).toHaveText('00:00.00 / 00:10.00');
 
   // Date changes follow the start/end inputs immediately.
   await page.getByLabel('開始日').fill('2024/02/29');
-  await expect(date).toHaveText('2024/02/29');
+  await expect(date).toHaveAttribute('data-date', '2024/02/29');
 });
 
 test('play advances frames by time and pause holds the frame', async ({ page }) => {
@@ -74,15 +76,15 @@ test('play advances frames by time and pause holds the frame', async ({ page }) 
   const held = Number(await canvas.getAttribute('data-frame'));
   await page.waitForTimeout(400);
   expect(Number(await canvas.getAttribute('data-frame'))).toBe(held);
-  await expect(page.getByTestId('current-date')).not.toHaveText('2026/03/06');
+  await expect(page.getByTestId('preview-canvas')).not.toHaveAttribute('data-date', '2026/03/06');
 });
 
 test('playback stops on the end date', async ({ page }) => {
   await page.getByLabel('長さ').fill('1');
   await page.getByTestId('play-toggle').click();
   await expect(page.getByTestId('play-toggle')).toHaveAccessibleName('再生', { timeout: 5000 });
-  await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
-  await expect(page.getByTestId('frame-counter')).toHaveText('29 / 29');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2020/01/01');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-frame', '29');
 });
 
 test('canvas pixels stay transparent; the black backdrop is CSS only', async ({ page }) => {
@@ -172,7 +174,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await expect(page.getByLabel('終了日')).toHaveValue('2020/01/01');
 
   await start.fill('2020/02/29');
-  await expect(page.getByTestId('current-date')).toHaveText('2020/02/29');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2020/02/29');
 
   // Other separators and bare digits are normalised.
   await start.fill('');
@@ -181,7 +183,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await start.fill('2023-7-4');
   await start.blur();
   await expect(start).toHaveValue('2023/07/04');
-  await expect(page.getByTestId('current-date')).toHaveText('2023/07/04');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2023/07/04');
 
   // Non-existent date → inline error, export disabled.
   await start.fill('2021/02/29');
@@ -192,7 +194,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   // Full-width input (Japanese IME or paste) is converted.
   await start.fill('２０２０／０２／２９');
   await expect(start).toHaveValue('2020/02/29');
-  await expect(page.getByTestId('current-date')).toHaveText('2020/02/29');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2020/02/29');
 
   // While an IME is composing the text is left alone; it is normalized on compositionend.
   await start.evaluate((el) => {
@@ -207,7 +209,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
     input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '２０２１０５０５' }));
   });
   await expect(start).toHaveValue('2021/05/05');
-  await expect(page.getByTestId('current-date')).toHaveText('2021/05/05');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2021/05/05');
 
   // The calendar button drives a hidden native picker; a picked date is written back.
   await expect(page.getByRole('button', { name: 'カレンダーから選ぶ' })).toHaveCount(2);
@@ -228,14 +230,14 @@ test('日付の表示形式 is the first 詳細設定 option and changes the ren
   await expect(select.locator('option')).toHaveText(['2026/03/06', '2026.03.06', '2026年03月06日']);
   await expect(page.getByLabel('速度曲線').locator('option')).toHaveText(['一定', 'なめらか', 'よりなめらか']);
   await expect(select).toHaveValue('YYYY/MM/DD');
-  await expect(page.getByTestId('current-date')).toHaveText('2026/03/06');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2026/03/06');
 
   const before = await canvasDataUrl(page);
   await select.selectOption('YYYY年MM月DD日');
-  await expect(page.getByTestId('current-date')).toHaveText('2026年03月06日');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2026年03月06日');
   await expect.poll(() => canvasDataUrl(page)).not.toBe(before);
   await select.selectOption('YYYY.MM.DD');
-  await expect(page.getByTestId('current-date')).toHaveText('2026.03.06');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2026.03.06');
 });
 
 test('choosing a font loads it lazily and redraws with it', async ({ page }) => {
@@ -255,23 +257,23 @@ test('choosing a font loads it lazily and redraws with it', async ({ page }) => 
 
 test('seek bar works by keyboard and pointer', async ({ page }) => {
   const seek = page.getByTestId('seek');
-  const frame = page.getByTestId('frame-counter');
+  const frame = page.getByTestId('preview-canvas');
 
   await seek.focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(frame).toHaveText('2 / 299');
+  await expect(frame).toHaveAttribute('data-frame', '2');
   await page.keyboard.press('End');
-  await expect(frame).toHaveText('299 / 299');
-  await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
+  await expect(frame).toHaveAttribute('data-frame', '299');
+  await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2020/01/01');
   await page.keyboard.press('Home');
-  await expect(frame).toHaveText('0 / 299');
+  await expect(frame).toHaveAttribute('data-frame', '0');
 
   // Pointer: clicking the middle of the track lands near the middle frame.
   const box = (await seek.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeGreaterThan(120);
-  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeLessThan(180);
+  await expect.poll(async () => Number(await frame.getAttribute('data-frame'))).toBeGreaterThan(120);
+  await expect.poll(async () => Number(await frame.getAttribute('data-frame'))).toBeLessThan(180);
   // The filled part of the track follows the value.
   expect(await seek.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--pct'))).toMatch(/^(4|5)\d\.\d+%$/);
 });
@@ -290,10 +292,10 @@ test.describe('mobile 375×812', () => {
 
     await expect(page.getByTestId('play-toggle')).toBeVisible();
     await page.getByRole('button', { name: '末尾へ' }).click();
-    await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
+    await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2020/01/01');
 
     await page.getByLabel('終了日').fill('20210615');
-    await expect(page.getByTestId('current-date')).toHaveText('2021/06/15');
+    await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2021/06/15');
 
     await page.getByTestId('export-button').scrollIntoViewIfNeeded();
     await expect(page.getByTestId('export-button')).toBeVisible();
@@ -339,6 +341,6 @@ test.describe('touch device', () => {
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await expect(start).toHaveValue('2025/12/24');
-    await expect(page.getByTestId('current-date')).toHaveText('2025/12/24');
+    await expect(page.getByTestId('preview-canvas')).toHaveAttribute('data-date', '2025/12/24');
   });
 });

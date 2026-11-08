@@ -138,6 +138,7 @@
       data-ready={fontState === 'ready' ? 'true' : 'false'}
       data-font={drawnFont}
       data-frame={frame}
+      data-date={currentDate}
       aria-label={`プレビュー: ${currentDate}（フレーム ${frame}）`}
     ></canvas>
     {#if fontError}
@@ -186,8 +187,6 @@
   </div>
 
   <p class="readout" aria-live="off">
-    <span data-testid="current-date">{currentDate}</span>
-    · <span data-testid="frame-counter">{frame} / {totalFrames - 1}</span> フレーム ·
     <span data-testid="time-counter">{formatTime(frameToSeconds(frame, config))} / {formatTime(config.durationSeconds)}</span>
   </p>
 </section>
