@@ -2,6 +2,7 @@
   import { CONFIG_LIMITS, EASINGS, FPS_OPTIONS, type DateFormat } from '../renderer/types.ts';
   import { FONTS, FONT_IDS } from '../renderer/fonts.ts';
   import { RESOLUTION_OPTIONS, normalizeHex, type EditorForm, type FormField } from '../ui/editor-form.ts';
+  import { EASING_LABELS } from '../ui/format.ts';
   import { rangeFill } from '../ui/range.ts';
   import DateField from './DateField.svelte';
 
@@ -19,11 +20,6 @@
     { value: 'YYYY年MM月DD日', label: '2026年03月06日' },
   ];
 
-  const EASING_LABELS: Record<(typeof EASINGS)[number], string> = {
-    linear: '一定（linear）',
-    smoothstep: 'なめらか（smoothstep）',
-    smootherstep: 'よりなめらか（smootherstep）',
-  };
 
   // The colour picker only understands lowercase #rrggbb; fall back while the hex field is mid-edit.
   const pickerValue = $derived(normalizeHex(form.color)?.toLowerCase() ?? '#ffffff');

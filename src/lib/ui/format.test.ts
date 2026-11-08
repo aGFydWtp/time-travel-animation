@@ -12,21 +12,21 @@ import {
 
 describe('summarizeRange / summarizeOutput', () => {
   it('summarizes the default config', () => {
-    expect(summarizeRange(DEFAULT_CONFIG)).toBe('2026/03/06 → 2020/01/01 · 15秒');
-    expect(summarizeOutput(DEFAULT_CONFIG)).toBe('1920×1080 · 30fps · smootherstep');
+    expect(summarizeRange(DEFAULT_CONFIG)).toBe('2026/03/06 → 2020/01/01 · 10秒');
+    expect(summarizeOutput(DEFAULT_CONFIG)).toBe('1920×1080 · 30fps · よりなめらか');
   });
 
   it("uses the job's own date format (dots for legacy jobs without one)", () => {
     expect(summarizeRange({ ...DEFAULT_CONFIG, dateFormat: 'YYYY年MM月DD日' })).toBe(
-      '2026年03月06日 → 2020年01月01日 · 15秒',
+      '2026年03月06日 → 2020年01月01日 · 10秒',
     );
     const legacy = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([key]) => key !== 'dateFormat'));
-    expect(summarizeRange(legacy as unknown as typeof DEFAULT_CONFIG)).toBe('2026.03.06 → 2020.01.01 · 15秒');
+    expect(summarizeRange(legacy as unknown as typeof DEFAULT_CONFIG)).toBe('2026.03.06 → 2020.01.01 · 10秒');
   });
 
   it('keeps tenth-second durations', () => {
     expect(summarizeRange({ ...DEFAULT_CONFIG, durationSeconds: 2.5 })).toContain('· 2.5秒');
-    expect(summarizeOutput({ ...DEFAULT_CONFIG, fps: 24, width: 1280, height: 720 })).toBe('1280×720 · 24fps · smootherstep');
+    expect(summarizeOutput({ ...DEFAULT_CONFIG, fps: 24, width: 1280, height: 720 })).toBe('1280×720 · 24fps · よりなめらか');
   });
 });
 

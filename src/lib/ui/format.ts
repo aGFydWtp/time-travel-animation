@@ -2,7 +2,14 @@
 import type { JobStage, JobStatus } from '../api/types.ts';
 import { formatDisplayDate, isoToOrdinal } from '../renderer/calendar.ts';
 import { FONTS, isFontId } from '../renderer/fonts.ts';
-import { LEGACY_DATE_FORMAT, type DateFormat, type RenderConfig } from '../renderer/types.ts';
+import { LEGACY_DATE_FORMAT, type DateFormat, type Easing, type RenderConfig } from '../renderer/types.ts';
+
+/** 速度曲線 labels, used by the select and every summary. */
+export const EASING_LABELS: Record<Easing, string> = {
+  linear: '一定',
+  smoothstep: 'なめらか',
+  smootherstep: 'よりなめらか',
+};
 
 function displayDate(iso: string, format: DateFormat): string {
   try {
@@ -21,9 +28,11 @@ export function summarizeRange(config: RenderConfig): string {
   return `${displayDate(config.startDate, format)} → ${displayDate(config.endDate, format)} · ${config.durationSeconds}秒`;
 }
 
-/** Output settings, e.g. `1920×1080 · 30fps · smootherstep`. */
+/** Output settings, e.g. `1920×1080 · 30fps · よりなめらか`. */
 export function summarizeOutput(config: RenderConfig): string {
-  return [`${config.width}×${config.height}`, `${config.fps}fps`, config.easing].join(' · ');
+  return [`${config.width}×${config.height}`, `${config.fps}fps`, EASING_LABELS[config.easing] ?? config.easing].join(
+    ' · ',
+  );
 }
 
 /** Secondary details: font, size, colour, position. */

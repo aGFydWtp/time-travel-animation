@@ -23,8 +23,8 @@ test('今の設定 marks only jobs made with the editor’s current settings', a
   await mockApi(page, { list: [same, other] });
   await openEditor(page);
   // An edit saves the editor config for /history (here: change and change back).
+  await page.getByLabel('長さ').fill('12');
   await page.getByLabel('長さ').fill('10');
-  await page.getByLabel('長さ').fill('15');
   await openHistory(page);
   await expect(page.locator('[data-job-id="job-same"]').getByTestId('job-current')).toHaveText('今の設定');
   await expect(page.locator('[data-job-id="job-other"]').getByTestId('job-current')).toHaveCount(0);

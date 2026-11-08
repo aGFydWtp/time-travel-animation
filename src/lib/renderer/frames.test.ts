@@ -3,8 +3,9 @@ import { isoToOrdinal } from './calendar.ts';
 import { getDateAtFrame, getFrameAtTime, getOrdinalAtFrame, getTotalFrames } from './frames.ts';
 import { DEFAULT_CONFIG, EASINGS, type RenderConfig } from './types.ts';
 
-// Spec examples use the dot format; DEFAULT_CONFIG itself uses slashes (see the dateFormat tests).
-const DOT_CONFIG: RenderConfig = { ...DEFAULT_CONFIG, dateFormat: 'YYYY.MM.DD' };
+// Spec examples use the acceptance settings (15 s @ 30 fps, dot format). DEFAULT_CONFIG itself is
+// 10 s with slashes (see the default and dateFormat tests).
+const DOT_CONFIG: RenderConfig = { ...DEFAULT_CONFIG, durationSeconds: 15, dateFormat: 'YYYY.MM.DD' };
 const cfg = (overrides: Partial<RenderConfig> = {}): RenderConfig => ({ ...DOT_CONFIG, ...overrides });
 
 /** Every displayed date must parse back as a real calendar date. */
@@ -14,8 +15,10 @@ function assertValidDisplay(display: string): number {
 }
 
 describe('getTotalFrames', () => {
-  it('default config (15s @ 30fps) has 450 frames', () => {
-    expect(getTotalFrames(DEFAULT_CONFIG)).toBe(450);
+  it('acceptance config (15s @ 30fps) has 450 frames; the default (10s @ 30fps) has 300', () => {
+    expect(getTotalFrames(DOT_CONFIG)).toBe(450);
+    expect(DEFAULT_CONFIG.durationSeconds).toBe(10);
+    expect(getTotalFrames(DEFAULT_CONFIG)).toBe(300);
   });
 
   it('handles 0.1s-step durations without float drift', () => {
@@ -134,7 +137,7 @@ describe('getDateAtFrame dateFormat', () => {
   it('DEFAULT_CONFIG renders slashes', () => {
     expect(DEFAULT_CONFIG.dateFormat).toBe('YYYY/MM/DD');
     expect(getDateAtFrame(0, DEFAULT_CONFIG)).toBe('2026/03/06');
-    expect(getDateAtFrame(449, DEFAULT_CONFIG)).toBe('2020/01/01');
+    expect(getDateAtFrame(299, DEFAULT_CONFIG)).toBe('2020/01/01');
   });
 
   it.each([
@@ -163,7 +166,8 @@ describe('getFrameAtTime', () => {
     expect(getFrameAtTime(0, DEFAULT_CONFIG)).toBe(0);
     expect(getFrameAtTime(1, DEFAULT_CONFIG)).toBe(30);
     expect(getFrameAtTime(0.1 * 3, DEFAULT_CONFIG)).toBe(9);
-    expect(getFrameAtTime(15, DEFAULT_CONFIG)).toBe(449);
+    expect(getFrameAtTime(10, DEFAULT_CONFIG)).toBe(299);
+    expect(getFrameAtTime(15, DOT_CONFIG)).toBe(449);
     expect(getFrameAtTime(-1, DEFAULT_CONFIG)).toBe(0);
   });
 });

@@ -43,9 +43,9 @@ test('seek 0% shows the start date and 100% shows the end date', async ({ page }
   const seek = page.getByTestId('seek');
 
   await expect(date).toHaveText('2026/03/06');
-  await seek.fill('449');
+  await seek.fill('299');
   await expect(date).toHaveText('2020/01/01');
-  await expect(page.getByTestId('frame-counter')).toHaveText('449 / 449');
+  await expect(page.getByTestId('frame-counter')).toHaveText('299 / 299');
   await seek.fill('0');
   await expect(date).toHaveText('2026/03/06');
 
@@ -53,7 +53,7 @@ test('seek 0% shows the start date and 100% shows the end date', async ({ page }
   await expect(date).toHaveText('2020/01/01');
   await page.getByRole('button', { name: '先頭へ' }).click();
   await expect(date).toHaveText('2026/03/06');
-  await expect(page.getByTestId('time-counter')).toHaveText('00:00.00 / 00:15.00');
+  await expect(page.getByTestId('time-counter')).toHaveText('00:00.00 / 00:10.00');
 
   // Date changes follow the start/end inputs immediately.
   await page.getByLabel('開始日').fill('2024/02/29');
@@ -226,6 +226,7 @@ test('日付の表示形式 is the first 詳細設定 option and changes the ren
   const select = page.getByLabel('日付の表示形式');
   await expect(page.getByTestId('advanced-settings').locator('select').first()).toHaveAttribute('id', 'dateFormat');
   await expect(select.locator('option')).toHaveText(['2026/03/06', '2026.03.06', '2026年03月06日']);
+  await expect(page.getByLabel('速度曲線').locator('option')).toHaveText(['一定', 'なめらか', 'よりなめらか']);
   await expect(select).toHaveValue('YYYY/MM/DD');
   await expect(page.getByTestId('current-date')).toHaveText('2026/03/06');
 
@@ -259,18 +260,18 @@ test('seek bar works by keyboard and pointer', async ({ page }) => {
   await seek.focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(frame).toHaveText('2 / 449');
+  await expect(frame).toHaveText('2 / 299');
   await page.keyboard.press('End');
-  await expect(frame).toHaveText('449 / 449');
+  await expect(frame).toHaveText('299 / 299');
   await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
   await page.keyboard.press('Home');
-  await expect(frame).toHaveText('0 / 449');
+  await expect(frame).toHaveText('0 / 299');
 
   // Pointer: clicking the middle of the track lands near the middle frame.
   const box = (await seek.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeGreaterThan(180);
-  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeLessThan(270);
+  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeGreaterThan(120);
+  await expect.poll(async () => Number((await frame.textContent())?.split(' / ')[0])).toBeLessThan(180);
   // The filled part of the track follows the value.
   expect(await seek.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--pct'))).toMatch(/^(4|5)\d\.\d+%$/);
 });

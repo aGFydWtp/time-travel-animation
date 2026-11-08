@@ -16,7 +16,7 @@ test('the 書き出す button carries the export state: queued → running → c
   await openEditor(page);
   const button = page.getByTestId('export-button');
   await expect(button).toHaveText('書き出す');
-  await expect(page.getByTestId('export-summary')).toHaveText('1920×1080 · 30fps · 15秒 → 確認用MP4・透過MOV');
+  await expect(page.getByTestId('export-summary')).toHaveText('1920×1080 · 30fps · 10秒');
 
   await button.click();
   // The pill keeps focus while it is busy (aria-disabled, not disabled).
@@ -46,7 +46,7 @@ test('the 書き出す button carries the export state: queued → running → c
   await expect(result.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
 
   // Changing settings keeps the result but marks it as the previous export.
-  await page.getByLabel('長さ').fill('10');
+  await page.getByLabel('長さ').fill('12');
   await expect(result).toContainText('前回の書き出し');
 
   // Pressing 書き出す again starts a new export.
@@ -67,7 +67,7 @@ test('editing stays possible while an export is running', async ({ page }) => {
   await expect(page.getByTestId('export-button')).toContainText('書き出し中… 10%');
 
   await page.getByLabel('終了日').fill('2022/12/31');
-  await page.getByTestId('seek').fill('449');
+  await page.getByTestId('seek').fill('299');
   await expect(page.getByTestId('current-date')).toHaveText('2022/12/31');
   await expect(page.getByTestId('export-summary')).toContainText('（書き出し中の設定とは異なります）');
   await expect(page.getByTestId('export-button')).toBeDisabled();
@@ -140,7 +140,7 @@ test('resubmitting the same config after a server error reuses the idempotency k
   expect(keys()[1]).toBe(keys()[0]);
 
   // A different config gets a new key.
-  await page.getByLabel('長さ').fill('10');
+  await page.getByLabel('長さ').fill('12');
   await page.getByTestId('export-button').click();
   await expect.poll(() => keys().length).toBe(3);
   expect(keys()[2]).not.toBe(keys()[0]);

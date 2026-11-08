@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "source": {
+    "name": "time-travel-animation",
+    "observability": {
+      "enabled": true
+    },
+    "workers_dev": true,
+    "preview_urls": false,
+    "routes": []
+  },
+  "resolved": {
+    "name": "time-travel-animation",
+    "observability": {
+      "enabled": true
+    },
+    "workers_dev": true,
+    "preview_urls": false,
+    "routes": [],
+    "account_id": "3bae3fb8abf763a2d88406ee1c2a554c",
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "time-travel-animation-db",
+        "database_id": "cdbd8088-9565-40cb-aaaa-4714a08afa91",
+        "migrations_dir": "./db/migrations"
+      }
+    ],
+    "r2_buckets": [
+      {
+        "binding": "STORAGE",
+        "bucket_name": "time-travel-animation-storage"
+      }
+    ]
+  },
+  "text": "{\n  \"name\": \"time-travel-animation\",\n  \"observability\": {\n    \"enabled\": true\n  },\n  \"workers_dev\": true,\n  \"preview_urls\": false,\n  \"routes\": [],\n  \"account_id\": \"3bae3fb8abf763a2d88406ee1c2a554c\",\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"time-travel-animation-db\",\n      \"database_id\": \"cdbd8088-9565-40cb-aaaa-4714a08afa91\",\n      \"migrations_dir\": \"./db/migrations\"\n    }\n  ],\n  \"r2_buckets\": [\n    {\n      \"binding\": \"STORAGE\",\n      \"bucket_name\": \"time-travel-animation-storage\"\n    }\n  ]\n}\n"
+}

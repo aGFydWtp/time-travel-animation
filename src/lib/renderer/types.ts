@@ -48,7 +48,7 @@ export const CONFIG_LIMITS = {
 export const DEFAULT_CONFIG: Readonly<RenderConfig> = Object.freeze({
   startDate: '2026-03-06',
   endDate: '2020-01-01',
-  durationSeconds: 15,
+  durationSeconds: 10,
   fps: 30,
   width: 1920,
   height: 1080,

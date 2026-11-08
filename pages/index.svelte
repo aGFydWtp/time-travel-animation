@@ -203,7 +203,7 @@
             ></span>
           {/if}
           <p class="muted" id="export-summary" data-testid="export-summary">
-            {busy ? '現在の設定 ' : ''}{previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒 → 確認用MP4・透過MOV
+            {busy ? '現在の設定 ' : ''}{previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒
             {#if busy && settingsChanged}<span>（書き出し中の設定とは異なります）</span>{/if}
           </p>
         </div>
