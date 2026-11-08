@@ -99,3 +99,27 @@ describe('describeApiError', () => {
     expect(describeApiError(new Error('x'))).toContain('予期しないエラー');
   });
 });
+
+describe('timeouts and cancellation', () => {
+  // A fetch that never answers but honours its abort signal, like the real one.
+  const hangingFetch: FetchLike = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+
+  it('fails with a timeout error when the server never answers', async () => {
+    const client = createApiClient(hangingFetch, { timeoutMs: 10 });
+    const error = await client.getRender('j1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe('timeout');
+    expect(describeApiError(error)).toContain('応答がありませんでした');
+  });
+
+  it("fails with 'aborted' when the caller cancels", async () => {
+    const client = createApiClient(hangingFetch, { timeoutMs: 10_000 });
+    const controller = new AbortController();
+    const pending = client.listRenders({}, { signal: controller.signal }).catch((e: unknown) => e);
+    controller.abort();
+    expect(((await pending) as ApiError).code).toBe('aborted');
+  });
+});

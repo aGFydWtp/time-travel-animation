@@ -7,11 +7,16 @@ export function isoToDisplay(iso: string): string {
 }
 
 /**
- * Light clean-up while typing: `-` and `.` become `/`, other characters are dropped, and
+ * Light clean-up while typing: full-width characters become ASCII, `年`/`月`/`-`/`.` become `/`,
+ * other characters are dropped, and
  * exactly 8 digits typed without separators get slashes (`20260306` → `2026/03/06`).
  */
 export function normalizeDateInput(text: string): string {
   const cleaned = text
+    // Full-width digits/separators from a Japanese IME or paste (２０２６／０３／０６) → ASCII.
+    .normalize('NFKC')
+    .replace(/[年月]/g, '/')
+    .replace(/日/g, '')
     .replace(/[-.]/g, '/')
     .replace(/[^\d/]/g, '')
     .slice(0, 10);

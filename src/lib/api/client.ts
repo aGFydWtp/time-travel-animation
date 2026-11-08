@@ -9,7 +9,10 @@ import type {
   RetryRenderResponse,
 } from './types.ts';
 
-export type ApiErrorCode = ApiErrorBody['error']['code'] | 'network' | 'http_error';
+export type ApiErrorCode = ApiErrorBody['error']['code'] | 'network' | 'http_error' | 'timeout' | 'aborted';
+
+/** A request that hasn't finished (including reading the body) by then fails with code `timeout`. */
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -53,28 +56,56 @@ function parseRetryAfter(header: string | null): number | null {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-export interface ApiClient {
-  createRender(config: RenderConfig, idempotencyKey?: string): Promise<CreateRenderResponse>;
-  listRenders(params?: { cursor?: string | null; limit?: number }): Promise<ListRendersResponse>;
-  getRender(id: string): Promise<RenderJob>;
-  retryRender(id: string): Promise<RetryRenderResponse>;
+/** Per-call options: `signal` lets the caller cancel (e.g. when a page unmounts). */
+export interface RequestOptions {
+  signal?: AbortSignal;
 }
 
-export function createApiClient(fetchImpl: FetchLike = (input, init) => fetch(input, init)): ApiClient {
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export interface ApiClient {
+  createRender(config: RenderConfig, idempotencyKey?: string, options?: RequestOptions): Promise<CreateRenderResponse>;
+  listRenders(
+    params?: { cursor?: string | null; limit?: number },
+    options?: RequestOptions,
+  ): Promise<ListRendersResponse>;
+  getRender(id: string, options?: RequestOptions): Promise<RenderJob>;
+  retryRender(id: string, options?: RequestOptions): Promise<RetryRenderResponse>;
+}
+
+export function createApiClient(
+  fetchImpl: FetchLike = (input, init) => fetch(input, init),
+  { timeoutMs = REQUEST_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): ApiClient {
+  async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const forwardAbort = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener('abort', forwardAbort, { once: true });
+
     let res: Response;
+    let text: string;
     try {
       res = await fetchImpl(path, {
         ...init,
         headers: { accept: 'application/json', ...(init?.body ? { 'content-type': 'application/json' } : {}) },
         credentials: 'same-origin',
+        signal: controller.signal,
       });
+      text = await res.text();
     } catch {
+      if (timedOut) throw new ApiError(0, 'timeout', 'Request timed out');
+      if (signal?.aborted) throw new ApiError(0, 'aborted', 'Request aborted');
       throw new ApiError(0, 'network', 'Network request failed');
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', forwardAbort);
     }
 
     let body: unknown = null;
-    const text = await res.text();
     if (text) {
       try {
         body = JSON.parse(text);
@@ -96,22 +127,30 @@ export function createApiClient(fetchImpl: FetchLike = (input, init) => fetch(in
   }
 
   return {
-    createRender(config, idempotencyKey) {
+    createRender(config, idempotencyKey, options) {
       const payload: CreateRenderRequest = idempotencyKey ? { config, idempotencyKey } : { config };
-      return request<CreateRenderResponse>('/api/renders', { method: 'POST', body: JSON.stringify(payload) });
+      return request<CreateRenderResponse>(
+        '/api/renders',
+        { method: 'POST', body: JSON.stringify(payload) },
+        options?.signal,
+      );
     },
-    listRenders(params = {}) {
+    listRenders(params = {}, options) {
       const qs = new URLSearchParams();
       if (params.cursor) qs.set('cursor', params.cursor);
       if (params.limit) qs.set('limit', String(params.limit));
       const query = qs.toString();
-      return request<ListRendersResponse>(`/api/renders${query ? `?${query}` : ''}`);
+      return request<ListRendersResponse>(`/api/renders${query ? `?${query}` : ''}`, undefined, options?.signal);
     },
-    getRender(id) {
-      return request<RenderJob>(`/api/renders/${encodeURIComponent(id)}`);
+    getRender(id, options) {
+      return request<RenderJob>(`/api/renders/${encodeURIComponent(id)}`, undefined, options?.signal);
     },
-    retryRender(id) {
-      return request<RetryRenderResponse>(`/api/renders/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+    retryRender(id, options) {
+      return request<RetryRenderResponse>(
+        `/api/renders/${encodeURIComponent(id)}/retry`,
+        { method: 'POST' },
+        options?.signal,
+      );
     },
   };
 }
@@ -138,6 +177,8 @@ export function describeApiError(error: unknown): string {
       return 'このジョブは現在の状態では操作できません。一覧を更新してください。';
     case 'not_ready':
       return '書き出しファイルはまだ準備できていません。';
+    case 'timeout':
+      return 'サーバーから応答がありませんでした。時間をおいてもう一度お試しください。';
     case 'network':
       return 'サーバーに接続できませんでした。通信状況を確認してください。';
     default:

@@ -21,14 +21,18 @@ test('今の設定 marks only jobs made with the editor’s current settings', a
   const same = completed(makeJob({ id: 'job-same', createdAt: '2026-11-08T05:00:00.000Z' }));
   const other = completed(makeJob({ id: 'job-other', configHash: 'other-hash' }));
   await mockApi(page, { list: [same, other] });
-  await openEditor(page); // saves the editor config for /history
+  await openEditor(page);
+  // An edit saves the editor config for /history (here: change and change back).
+  await page.getByLabel('長さ').fill('10');
+  await page.getByLabel('長さ').fill('15');
   await openHistory(page);
   await expect(page.locator('[data-job-id="job-same"]').getByTestId('job-current')).toHaveText('今の設定');
   await expect(page.locator('[data-job-id="job-other"]').getByTestId('job-current')).toHaveCount(0);
 });
 
-test('without a saved editor config no marker is shown', async ({ page }) => {
+test('without a saved editor config no marker is shown (just opening the editor saves nothing)', async ({ page }) => {
   await mockApi(page, { list: [completed(makeJob({ id: 'job-same' }))] });
+  await openEditor(page);
   await openHistory(page);
   await expect(page.getByTestId('job-current')).toHaveCount(0);
 });
@@ -139,6 +143,11 @@ test('load more appends the next page', async ({ page }) => {
   await page.getByRole('button', { name: 'さらに読み込む' }).click();
   await expect(page.getByTestId('job-item')).toHaveCount(2);
   await expect(page.getByTestId('job-item').nth(1)).toHaveAttribute('data-job-id', 'job-p2');
+  await expect(page.getByRole('button', { name: 'さらに読み込む' })).toHaveCount(0);
+
+  // Refreshing after everything is loaded must not bring 「さらに読み込む」 back.
+  await page.getByRole('button', { name: '更新' }).click();
+  await expect(page.getByTestId('job-item')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'さらに読み込む' })).toHaveCount(0);
 });
 

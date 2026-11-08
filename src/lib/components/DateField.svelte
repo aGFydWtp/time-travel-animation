@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { isoToDisplay, normalizeDateInput, parseDateInput } from '../ui/date-input.ts';
 
   interface Props {
@@ -13,6 +14,13 @@
 
   let text = $state(isoToDisplay(value));
   let picker: HTMLInputElement | undefined = $state();
+  let field: HTMLInputElement | undefined = $state();
+  /** The calendar button is only offered where the native picker can be opened programmatically. */
+  let canPick = $state(false);
+
+  onMount(() => {
+    canPick = typeof HTMLInputElement.prototype.showPicker === 'function';
+  });
 
   const toValue = (t: string) => parseDateInput(t) ?? normalizeDateInput(t);
 
@@ -23,7 +31,12 @@
   });
 
   function onInput(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
+    // Leave text alone while a Japanese IME is composing; normalize once it commits.
+    if ((event as InputEvent).isComposing) return;
+    commit(event.currentTarget as HTMLInputElement);
+  }
+
+  function commit(input: HTMLInputElement) {
     const normalized = normalizeDateInput(input.value);
     if (normalized !== input.value) input.value = normalized;
     text = normalized;
@@ -40,8 +53,8 @@
     try {
       picker.showPicker();
     } catch {
-      picker.focus();
-      picker.click();
+      // Picker refused (e.g. not allowed right now): keep the user on the text field.
+      field?.focus();
     }
   }
 
@@ -55,6 +68,7 @@
 
 <div class="date-field">
   <input
+    bind:this={field}
     {id}
     type="text"
     inputmode="numeric"
@@ -63,17 +77,20 @@
     maxlength="10"
     value={text}
     oninput={onInput}
+    oncompositionend={(event) => commit(event.currentTarget)}
     onblur={onBlur}
     required
     aria-invalid={invalid}
     aria-describedby={describedBy}
   />
-  <button type="button" class="calendar" onclick={openPicker} aria-label="カレンダーから選ぶ" title="カレンダーから選ぶ">
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
-      <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
-    </svg>
-  </button>
+  {#if canPick}
+    <button type="button" class="calendar" onclick={openPicker} aria-label="カレンダーから選ぶ" title="カレンダーから選ぶ">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+        <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+      </svg>
+    </button>
+  {/if}
   <!-- Native picker only for its popup calendar; the text input is the real field. -->
   <input
     bind:this={picker}

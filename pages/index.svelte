@@ -16,7 +16,8 @@
   } from '../src/lib/ui/editor-form.ts';
   import { clampProgress } from '../src/lib/ui/format.ts';
   import { IdempotencyKeys, isTerminalCreateError } from '../src/lib/ui/idempotency.ts';
-  import { JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
+  import { forgetActiveJob, recallActiveJob, rememberActiveJob } from '../src/lib/ui/active-job.ts';
+  import { CONNECTION_LOST_MESSAGE, JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
   import { saveLastConfig } from '../src/lib/ui/last-config.ts';
   import { isActiveJob } from '../src/lib/ui/poll.ts';
 
@@ -34,9 +35,16 @@
     return lastValid;
   });
 
-  // /history reads this to mark the job made with the current settings.
+  // /history reads this to mark the job made with the current settings. Saved only once the
+  // settings differ from the initial defaults (a user edit or a ?from= load), so merely opening
+  // the editor never overwrites what the user last worked on.
+  const initialForm = JSON.stringify(defaultForm());
+  let saveArmed = false;
   $effect(() => {
-    saveLastConfig(previewConfig);
+    const config = previewConfig;
+    if (!saveArmed && JSON.stringify(form) === initialForm) return;
+    saveArmed = true;
+    saveLastConfig(config);
   });
 
   // Hash of the current settings, to tell whether the tracked export still matches them.
@@ -73,6 +81,13 @@
     trackedJob && (trackedJob.status === 'completed' || trackedJob.status === 'failed') ? trackedJob : null,
   );
 
+  // Remember the running export for this tab so a reload can pick it up again.
+  $effect(() => {
+    if (!trackedJob) return;
+    if (busy) rememberActiveJob(trackedJob.id);
+    else forgetActiveJob();
+  });
+
   async function startExport() {
     if (!parsed.success || exporting || busy) return;
     const config = parsed.data;
@@ -101,11 +116,17 @@
 
   /** `/?from=<jobId>` (from 「エディターに読み込む」 on /history) loads that job's settings. */
   async function loadFromJob(id: string) {
+    const before = JSON.stringify(form);
     try {
       const job = await api.getRender(id);
       const config = safeParseRenderConfig(job.config);
       if (!config.success) {
         notice = { kind: 'error', text: 'この書き出しの設定は読み込めませんでした' };
+        return;
+      }
+      // Don't clobber edits the user made while the job was loading.
+      if (JSON.stringify(form) !== before) {
+        notice = { kind: 'ok', text: '編集中のため、書き出しの設定は読み込みませんでした' };
         return;
       }
       form = formFromConfig(config.data);
@@ -118,12 +139,23 @@
             ? '指定された書き出しが見つかりませんでした'
             : describeApiError(error),
       };
+    } finally {
+      // Applied once: a reload must not re-apply it over later edits.
+      const url = new URL(window.location.href);
+      url.searchParams.delete('from');
+      history.replaceState(history.state, '', url);
     }
   }
 
   onMount(() => {
     const from = new URL(window.location.href).searchParams.get('from');
     if (from) void loadFromJob(from);
+    const activeId = recallActiveJob();
+    if (activeId) {
+      void tracker.resume(activeId).then((adopted) => {
+        if (!adopted) forgetActiveJob();
+      });
+    }
     return () => tracker.dispose();
   });
 </script>
@@ -145,7 +177,8 @@
             class="primary"
             class:busy
             onclick={startExport}
-            disabled={!parsed.success || exporting || busy}
+            disabled={!parsed.success}
+            aria-disabled={exporting || busy ? 'true' : undefined}
             aria-describedby="export-summary"
             style:--pct={`${busyPct}%`}
             data-testid="export-button"
@@ -180,6 +213,13 @@
             <p class="error">入力内容に {errorCount} 件のエラーがあります</p>
           {:else if notice}
             <p class:error={notice.kind === 'error'} class:muted={notice.kind === 'ok'} data-testid="export-notice">{notice.text}</p>
+          {/if}
+          {#if busy}
+            <!-- Announced once per state (not per percent); the pill keeps focus while busy. -->
+            <span class="visually-hidden">{trackedJob?.status === 'running' ? '書き出し中' : '書き出しの順番待ち'}</span>
+          {/if}
+          {#if tracker.connectionLost}
+            <p class="muted" data-testid="connection-lost">{CONNECTION_LOST_MESSAGE}</p>
           {/if}
           {#if tracker.error}
             <p class="error" role="alert">{tracker.error}</p>
@@ -233,8 +273,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .primary:hover:not(:disabled) {
+  .primary:hover:not(:disabled):not([aria-disabled='true']) {
     background: #333;
+  }
+
+  .primary[aria-disabled='true']:not(.busy) {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   /* Busy: the pill is the progress bar. Dark fill grows left→right; a white copy of the label is clipped to it. */

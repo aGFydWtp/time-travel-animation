@@ -5,7 +5,7 @@
   import JobList from '../src/lib/components/JobList.svelte';
   import SiteHeader from '../src/lib/components/SiteHeader.svelte';
   import { hashConfig } from '../src/lib/renderer/schema.ts';
-  import { JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
+  import { CONNECTION_LOST_MESSAGE, JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
   import { loadLastConfig } from '../src/lib/ui/last-config.ts';
 
   const tracker = new JobTracker(api, { mode: 'list' });
@@ -30,6 +30,9 @@
   <SiteHeader current="history" />
 
   <main>
+    {#if tracker.connectionLost}
+      <p class="connection" data-testid="connection-lost">{CONNECTION_LOST_MESSAGE}</p>
+    {/if}
     <JobList
       jobs={tracker.jobs}
       {currentHash}
@@ -46,3 +49,11 @@
     />
   </main>
 </div>
+
+<style>
+  .connection {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+</style>

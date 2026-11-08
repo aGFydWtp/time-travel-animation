@@ -189,6 +189,26 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await expect(start).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByTestId('export-button')).toBeDisabled();
 
+  // Full-width input (Japanese IME or paste) is converted.
+  await start.fill('２０２０／０２／２９');
+  await expect(start).toHaveValue('2020/02/29');
+  await expect(page.getByTestId('current-date')).toHaveText('2020/02/29');
+
+  // While an IME is composing the text is left alone; it is normalized on compositionend.
+  await start.evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = '２０２１';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: '２０２１' }));
+  });
+  await expect(start).toHaveValue('２０２１');
+  await start.evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = '２０２１０５０５';
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '２０２１０５０５' }));
+  });
+  await expect(start).toHaveValue('2021/05/05');
+  await expect(page.getByTestId('current-date')).toHaveText('2021/05/05');
+
   // The calendar button drives a hidden native picker; a picked date is written back.
   await expect(page.getByRole('button', { name: 'カレンダーから選ぶ' })).toHaveCount(2);
   await start.locator('xpath=..').locator('input[type="date"]').evaluate((el) => {
