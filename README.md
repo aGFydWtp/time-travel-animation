@@ -3,6 +3,8 @@
 日付が開始日から終了日へ 1 日ずつ進む（または戻る）カウントダウン動画を、ブラウザで編集して書き出すアプリです。
 Void（Vite + Svelte 5）で作り、Cloudflare Workers にデプロイします（Worker 名 `time-travel-animation`）。
 
+![エディター画面（デスクトップ）](docs/screenshot-desktop.png)
+
 ## 概要
 
 - 開始日、終了日、尺、fps、解像度、イージング、フォント、文字サイズ、色、位置を設定し、Canvas でプレビューできます。
