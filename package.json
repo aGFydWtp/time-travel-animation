@@ -1,0 +1,48 @@
+{
+  "name": "time-travel-animation",
+  "description": "Date Countdown Studio: 日付カウントダウン動画の編集・書き出しアプリ",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "db:generate": "void db generate",
+    "db:migrate": "void db migrate",
+    "build:container": "node scripts/build-container.ts",
+    "render:local": "node scripts/render-local.ts",
+    "deploy": "void deploy --platform cloudflare",
+    "postinstall": "void prepare"
+  },
+  "dependencies": {
+    "jose": "^6.2.15",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
+    "@void/svelte": "1.6.2",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.65.0",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "void": "1.6.2"
+  },
+  "engines": {
+    "node": "^24.22.0 || >=26.12.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "workerd"
+    ]
+  }
+}
