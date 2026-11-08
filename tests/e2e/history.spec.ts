@@ -9,7 +9,6 @@ test('header links switch between the editor and history', async ({ page }) => {
   await page.getByRole('link', { name: '書き出し一覧' }).click();
   await expect(page).toHaveURL(/\/history$/);
   await expect(page.getByRole('heading', { level: 1, name: '書き出し一覧' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '書き出し一覧' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('まだ書き出していません')).toBeVisible();
   await expect(page).toHaveTitle('書き出し一覧 · 日付アニメーション');
 

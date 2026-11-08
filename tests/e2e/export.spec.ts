@@ -33,7 +33,8 @@ test('export: queued → running → completed shows one status line with downlo
   await expect(status.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
   await expect(status.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
   await expect(status.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
-  await expect(status.getByRole('link', { name: '一覧を見る →' })).toHaveAttribute('href', '/history');
+  await expect(status.getByRole('link')).toHaveCount(2); // just the two downloads
+  await expect(page.getByRole('link', { name: '書き出し一覧' })).toHaveAttribute('href', '/history');
   await expect(page.getByText('確認用MP4と透過MOVを作成します')).toBeVisible();
 });
 

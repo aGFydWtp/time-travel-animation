@@ -9,26 +9,28 @@
 </script>
 
 <header class="site-header">
-  <nav aria-label="ページ">
-    {#if current === 'editor'}
-      <h1 class="brand"><Link href="/" aria-current="page">日付アニメーション</Link></h1>
-    {:else}
-      <p class="brand"><Link href="/">日付アニメーション</Link></p>
-    {/if}
-    <Link href="/history" class="nav-link" aria-current={current === 'history' ? 'page' : undefined}>書き出し一覧</Link>
-  </nav>
+  {#if current === 'editor'}
+    <h1 class="brand"><Link href="/" aria-current="page">日付アニメーション</Link></h1>
+    <Link href="/history" class="icon-link" aria-label="書き出し一覧" title="書き出し一覧">
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="4" cy="5" r="1.25" />
+        <circle cx="4" cy="10" r="1.25" />
+        <circle cx="4" cy="15" r="1.25" />
+        <path d="M8 5h9M8 10h9M8 15h9" />
+      </svg>
+    </Link>
+  {:else}
+    <p class="brand"><Link href="/">日付アニメーション</Link></p>
+  {/if}
 </header>
 
 <style>
   .site-header {
-    margin-bottom: 24px;
-  }
-
-  nav {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 24px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
   }
 
   .brand {
@@ -37,32 +39,39 @@
     font-weight: 600;
   }
 
-  nav :global(a) {
-    color: var(--muted);
+  .brand :global(a) {
+    color: var(--ink);
     text-decoration: none;
   }
 
-  nav :global(a:hover) {
-    color: var(--ink);
+  .brand :global(a:hover) {
     text-decoration: underline;
   }
 
-  .brand :global(a) {
+  .site-header :global(.icon-link) {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
     color: var(--ink);
   }
 
-  nav :global(.nav-link) {
-    font-size: 15px;
+  .site-header :global(.icon-link:hover) {
+    background: var(--hover);
   }
 
-  nav :global(.nav-link[aria-current='page']) {
-    color: var(--ink);
-    font-weight: 600;
+  .site-header :global(.icon-link svg) {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
   }
 
-  @media (max-width: 767px) {
-    nav :global(.nav-link) {
-      padding: 10px 4px;
-    }
+  .site-header :global(.icon-link svg circle) {
+    stroke: none;
   }
 </style>

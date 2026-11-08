@@ -40,7 +40,6 @@
       {retrying ? '書き出し中…' : 'もう一度書き出す'}
     </button>
   {/if}
-  <a class="history" href="/history">一覧を見る →</a>
 </p>
 
 <style>
@@ -87,19 +86,6 @@
 
   .pct {
     color: var(--ink);
-  }
-
-  .history {
-    display: inline-flex;
-    align-items: center;
-    min-height: 32px;
-    color: var(--muted);
-    text-decoration: none;
-  }
-
-  .history:hover {
-    color: var(--ink);
-    text-decoration: underline;
   }
 
   .done {
