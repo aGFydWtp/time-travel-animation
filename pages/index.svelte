@@ -13,7 +13,6 @@
     fieldErrors,
     formFromConfig,
     formToConfigInput,
-    type PreviewBackground,
   } from '../src/lib/ui/editor-form.ts';
   import { IdempotencyKeys, isTerminalCreateError } from '../src/lib/ui/idempotency.ts';
   import { JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
@@ -21,7 +20,6 @@
 
   // ---- editor ----------------------------------------------------------
   let form = $state(defaultForm());
-  let background: PreviewBackground = $state('checkerboard');
 
   const parsed = $derived(safeParseRenderConfig(formToConfigInput(form)));
   const errors = $derived(parsed.success ? {} : fieldErrors(parsed.error.issues));
@@ -108,7 +106,7 @@
     <SettingsPanel bind:form {errors} />
 
     <div class="group">
-      <PreviewPane config={previewConfig} bind:background />
+      <PreviewPane config={previewConfig} />
 
       <section class="export" aria-labelledby="export-title">
         <h2 id="export-title" class="visually-hidden">書き出し</h2>

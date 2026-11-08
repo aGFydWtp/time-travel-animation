@@ -85,13 +85,11 @@ test('playback stops on the end date', async ({ page }) => {
   await expect(page.getByTestId('frame-counter')).toHaveText('29 / 29');
 });
 
-test('checkerboard is CSS only and never drawn into canvas pixels', async ({ page }) => {
-  await expect(page.getByRole('radio', { name: '市松' })).toBeChecked();
+test('canvas pixels stay transparent; the black backdrop is CSS only', async ({ page }) => {
   const canvas = page.getByTestId('preview-canvas');
-
-  const stageBg = await canvas.evaluate((c) => getComputedStyle(c.parentElement!).backgroundImage);
-  expect(stageBg).toContain('gradient');
-  expect(await canvas.evaluate((c) => getComputedStyle(c).backgroundImage)).toBe('none');
+  expect(await canvas.evaluate((c) => getComputedStyle(c.parentElement!).backgroundColor)).toBe('rgb(0, 0, 0)');
+  expect(await canvas.evaluate((c) => getComputedStyle(c).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  await expect(page.getByRole('radio')).toHaveCount(0); // no background toggle
 
   const stats = await canvas.evaluate((c) => {
     const el = c as HTMLCanvasElement;
@@ -114,12 +112,6 @@ test('checkerboard is CSS only and never drawn into canvas pixels', async ({ pag
   expect(stats.corners).toEqual([0, 0, 0, 0]);
   expect(stats.opaque).toBeGreaterThan(0); // the date text is drawn
   expect(stats.transparent / stats.total).toBeGreaterThan(0.9); // everything else stays transparent
-
-  // Switching to black only changes CSS; the pixels are identical.
-  const before = await canvasDataUrl(page);
-  await page.getByRole('radio', { name: '黒' }).check();
-  expect(await canvas.evaluate((c) => getComputedStyle(c.parentElement!).backgroundColor)).toBe('rgb(0, 0, 0)');
-  expect(await canvasDataUrl(page)).toBe(before);
 });
 
 test('invalid settings show inline errors and disable export', async ({ page }) => {
@@ -155,8 +147,6 @@ test('only the dates and duration are shown until 詳細設定 is opened', async
   for (const label of ['開始日', '終了日', '長さ']) {
     await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   }
-  // The preview background toggle lives next to the transport, not in the form.
-  await expect(page.getByRole('radio', { name: '黒' })).toBeVisible();
   for (const label of ['FPS', '解像度', '速度曲線', 'フォント', '文字色', 'フォントサイズ']) {
     await expect(page.getByLabel(label, { exact: true })).toBeHidden();
   }

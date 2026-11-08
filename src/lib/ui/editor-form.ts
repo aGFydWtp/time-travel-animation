@@ -1,9 +1,6 @@
 // Editor form state <-> RenderConfig, and mapping of validation issues to fields.
 import { DEFAULT_CONFIG, RESOLUTIONS, type RenderConfig } from '../renderer/types.ts';
 
-/** Preview-only backdrop (CSS). Never drawn into the canvas or the output. */
-export type PreviewBackground = 'checkerboard' | 'black';
-
 export type ResolutionKey = `${number}x${number}`;
 
 /** Raw values bound to the inputs. Number inputs yield null while empty. */

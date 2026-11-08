@@ -5,18 +5,15 @@
   import { clampFrameIndex, getDateAtFrame, getTotalFrames } from '../renderer/frames.ts';
   import { renderFrame } from '../renderer/render-frame.ts';
   import type { RenderConfig } from '../renderer/types.ts';
-  import type { PreviewBackground } from '../ui/editor-form.ts';
   import { PlaybackClock, formatTime, frameToSeconds, playbackStep } from '../ui/playback.ts';
   import { rangeFill } from '../ui/range.ts';
 
   interface Props {
     /** Last valid config; the preview never draws an invalid one. */
     config: RenderConfig;
-    /** Preview-only backdrop (CSS); never affects the output. */
-    background: PreviewBackground;
   }
 
-  let { config, background = $bindable() }: Props = $props();
+  let { config }: Props = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let fontState: 'loading' | 'ready' | 'error' = $state('loading');
@@ -105,7 +102,7 @@
 <section class="preview" aria-labelledby="preview-title">
   <h2 id="preview-title" class="visually-hidden">プレビュー</h2>
 
-  <div class="stage" class:checkerboard={background === 'checkerboard'} class:black={background === 'black'}>
+  <div class="stage">
     <canvas
       bind:this={canvas}
       width={config.width}
@@ -158,12 +155,6 @@
       aria-valuetext={`フレーム ${frame}、${currentDate}`}
       data-testid="seek"
     />
-    <div class="bg" role="radiogroup" aria-label="プレビュー背景" aria-describedby="bg-note">
-      <span class="bg-label" aria-hidden="true">背景</span>
-      <label><input type="radio" name="preview-bg" value="checkerboard" bind:group={background} />市松</label>
-      <label><input type="radio" name="preview-bg" value="black" bind:group={background} />黒</label>
-      <span id="bg-note" class="visually-hidden">画面表示だけの設定です。書き出す動画には影響しません</span>
-    </div>
   </div>
 
   <p class="readout" aria-live="off">
@@ -180,30 +171,12 @@
     min-width: 0;
   }
 
+  /* Black backdrop (as in the MP4) is CSS only; the canvas itself stays transparent. */
   .stage {
     position: relative;
     aspect-ratio: 16 / 9;
     width: 100%;
     overflow: hidden;
-  }
-
-  /* Preview backdrops are CSS only; the canvas itself stays transparent. */
-  .stage.checkerboard {
-    background-color: #80858c;
-    background-image:
-      linear-gradient(45deg, #737880 25%, transparent 25%),
-      linear-gradient(-45deg, #737880 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #737880 75%),
-      linear-gradient(-45deg, transparent 75%, #737880 75%);
-    background-size: 32px 32px;
-    background-position:
-      0 0,
-      0 16px,
-      16px -16px,
-      -16px 0;
-  }
-
-  .stage.black {
     background: #000;
   }
 
@@ -277,48 +250,6 @@
   .seek {
     flex: 1 1 12rem;
     min-width: 0;
-  }
-
-  .bg {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: none;
-    font-size: 13px;
-  }
-
-  .bg-label {
-    color: var(--muted);
-  }
-
-  .bg label {
-    position: relative;
-    padding: 4px 8px;
-    border-radius: 4px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-
-  .bg label:has(input:checked) {
-    background: var(--subtle);
-    color: var(--ink);
-    font-weight: 600;
-  }
-
-  .bg label:has(input:focus-visible) {
-    outline: 2px solid var(--ink);
-    outline-offset: 2px;
-  }
-
-  /* The native radio covers its label (keeps keyboard/AT behaviour) but is invisible. */
-  .bg input {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    opacity: 0;
-    cursor: pointer;
   }
 
   .readout {
