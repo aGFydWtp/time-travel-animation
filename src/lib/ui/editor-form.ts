@@ -11,6 +11,7 @@ export interface EditorForm {
   fps: number;
   resolution: ResolutionKey;
   easing: string;
+  dateFormat: string;
   fontFamily: string;
   fontSize: number | null;
   color: string;
@@ -33,6 +34,7 @@ export function formFromConfig(config: Readonly<RenderConfig>): EditorForm {
     fps: config.fps,
     resolution: `${config.width}x${config.height}`,
     easing: config.easing,
+    dateFormat: config.dateFormat,
     fontFamily: config.fontFamily,
     fontSize: config.fontSize,
     color: config.color,
@@ -56,6 +58,7 @@ export function formToConfigInput(form: EditorForm): Record<string, unknown> {
     width: w,
     height: h,
     easing: form.easing,
+    dateFormat: form.dateFormat,
     fontFamily: form.fontFamily,
     fontSize: form.fontSize ?? Number.NaN,
     color: form.color.trim(),
@@ -72,6 +75,7 @@ export const FIELD_MESSAGES: Record<FormField, string> = {
   fps: '24 / 30 / 60 から選んでください',
   resolution: '1280×720 または 1920×1080 を選んでください',
   easing: '速度曲線を選んでください',
+  dateFormat: '日付の表示形式を選んでください',
   fontFamily: '同梱フォントから選んでください',
   fontSize: '24〜240 の整数で入力してください',
   color: '#RRGGBB 形式（例: #FFFFFF）で入力してください',

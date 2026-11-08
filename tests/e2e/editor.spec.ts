@@ -42,22 +42,22 @@ test('seek 0% shows the start date and 100% shows the end date', async ({ page }
   const date = page.getByTestId('current-date');
   const seek = page.getByTestId('seek');
 
-  await expect(date).toHaveText('2026.03.06');
+  await expect(date).toHaveText('2026/03/06');
   await seek.fill('449');
-  await expect(date).toHaveText('2020.01.01');
+  await expect(date).toHaveText('2020/01/01');
   await expect(page.getByTestId('frame-counter')).toHaveText('449 / 449');
   await seek.fill('0');
-  await expect(date).toHaveText('2026.03.06');
+  await expect(date).toHaveText('2026/03/06');
 
   await page.getByRole('button', { name: '末尾へ' }).click();
-  await expect(date).toHaveText('2020.01.01');
+  await expect(date).toHaveText('2020/01/01');
   await page.getByRole('button', { name: '先頭へ' }).click();
-  await expect(date).toHaveText('2026.03.06');
+  await expect(date).toHaveText('2026/03/06');
   await expect(page.getByTestId('time-counter')).toHaveText('00:00.00 / 00:15.00');
 
   // Date changes follow the start/end inputs immediately.
   await page.getByLabel('開始日').fill('2024/02/29');
-  await expect(date).toHaveText('2024.02.29');
+  await expect(date).toHaveText('2024/02/29');
 });
 
 test('play advances frames by time and pause holds the frame', async ({ page }) => {
@@ -74,14 +74,14 @@ test('play advances frames by time and pause holds the frame', async ({ page }) 
   const held = Number(await canvas.getAttribute('data-frame'));
   await page.waitForTimeout(400);
   expect(Number(await canvas.getAttribute('data-frame'))).toBe(held);
-  await expect(page.getByTestId('current-date')).not.toHaveText('2026.03.06');
+  await expect(page.getByTestId('current-date')).not.toHaveText('2026/03/06');
 });
 
 test('playback stops on the end date', async ({ page }) => {
   await page.getByLabel('長さ').fill('1');
   await page.getByTestId('play-toggle').click();
   await expect(page.getByTestId('play-toggle')).toHaveAccessibleName('再生', { timeout: 5000 });
-  await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
+  await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
   await expect(page.getByTestId('frame-counter')).toHaveText('29 / 29');
 });
 
@@ -172,7 +172,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await expect(page.getByLabel('終了日')).toHaveValue('2020/01/01');
 
   await start.fill('2020/02/29');
-  await expect(page.getByTestId('current-date')).toHaveText('2020.02.29');
+  await expect(page.getByTestId('current-date')).toHaveText('2020/02/29');
 
   // Other separators and bare digits are normalised.
   await start.fill('');
@@ -181,7 +181,7 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await start.fill('2023-7-4');
   await start.blur();
   await expect(start).toHaveValue('2023/07/04');
-  await expect(page.getByTestId('current-date')).toHaveText('2023.07.04');
+  await expect(page.getByTestId('current-date')).toHaveText('2023/07/04');
 
   // Non-existent date → inline error, export disabled.
   await start.fill('2021/02/29');
@@ -201,9 +201,35 @@ test('dates are shown and typed in Japanese order (YYYY/MM/DD)', async ({ page }
   await expect(page.getByTestId('export-button')).toBeEnabled();
 });
 
-test('date format is fixed and shown as a note', async ({ page }) => {
-  await expect(page.getByTestId('date-format')).toHaveText('表示形式 YYYY.MM.DD');
-  await expect(page.getByLabel('日付表示')).toHaveCount(0);
+test('日付の表示形式 is the first 詳細設定 option and changes the rendered date', async ({ page }) => {
+  await openAdvanced(page);
+  const select = page.getByLabel('日付の表示形式');
+  await expect(page.getByTestId('advanced-settings').locator('select').first()).toHaveAttribute('id', 'dateFormat');
+  await expect(select.locator('option')).toHaveText(['2026/03/06', '2026.03.06', '2026年03月06日']);
+  await expect(select).toHaveValue('YYYY/MM/DD');
+  await expect(page.getByTestId('current-date')).toHaveText('2026/03/06');
+
+  const before = await canvasDataUrl(page);
+  await select.selectOption('YYYY年MM月DD日');
+  await expect(page.getByTestId('current-date')).toHaveText('2026年03月06日');
+  await expect.poll(() => canvasDataUrl(page)).not.toBe(before);
+  await select.selectOption('YYYY.MM.DD');
+  await expect(page.getByTestId('current-date')).toHaveText('2026.03.06');
+});
+
+test('choosing a font loads it lazily and redraws with it', async ({ page }) => {
+  await openAdvanced(page);
+  const fontSelect = page.getByLabel('フォント', { exact: true });
+  await expect(fontSelect.locator('option')).toHaveCount(8);
+  await expect(fontSelect.locator('option', { hasText: '明朝（Noto Serif JP）' })).toHaveCount(1);
+  const canvas = page.getByTestId('preview-canvas');
+  await expect(canvas).toHaveAttribute('data-font', 'bundled-mono');
+
+  const before = await canvasDataUrl(page);
+  await fontSelect.selectOption('noto-serif-jp');
+  await expect(canvas).toHaveAttribute('data-font', 'noto-serif-jp');
+  await expect.poll(() => canvasDataUrl(page)).not.toBe(before);
+  expect(await page.evaluate(() => document.fonts.check('96px "DCS Noto Serif JP"', '2026'))).toBe(true);
 });
 
 test('seek bar works by keyboard and pointer', async ({ page }) => {
@@ -216,7 +242,7 @@ test('seek bar works by keyboard and pointer', async ({ page }) => {
   await expect(frame).toHaveText('2 / 449');
   await page.keyboard.press('End');
   await expect(frame).toHaveText('449 / 449');
-  await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
+  await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
   await page.keyboard.press('Home');
   await expect(frame).toHaveText('0 / 449');
 
@@ -243,10 +269,10 @@ test.describe('mobile 375×812', () => {
 
     await expect(page.getByTestId('play-toggle')).toBeVisible();
     await page.getByRole('button', { name: '末尾へ' }).click();
-    await expect(page.getByTestId('current-date')).toHaveText('2020.01.01');
+    await expect(page.getByTestId('current-date')).toHaveText('2020/01/01');
 
     await page.getByLabel('終了日').fill('20210615');
-    await expect(page.getByTestId('current-date')).toHaveText('2021.06.15');
+    await expect(page.getByTestId('current-date')).toHaveText('2021/06/15');
 
     await page.getByTestId('export-button').scrollIntoViewIfNeeded();
     await expect(page.getByTestId('export-button')).toBeVisible();

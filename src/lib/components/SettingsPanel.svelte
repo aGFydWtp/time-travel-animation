@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CONFIG_LIMITS, EASINGS, FPS_OPTIONS } from '../renderer/types.ts';
+  import { CONFIG_LIMITS, EASINGS, FPS_OPTIONS, type DateFormat } from '../renderer/types.ts';
   import { FONTS, FONT_IDS } from '../renderer/fonts.ts';
   import { RESOLUTION_OPTIONS, normalizeHex, type EditorForm, type FormField } from '../ui/editor-form.ts';
   import { rangeFill } from '../ui/range.ts';
@@ -11,6 +11,13 @@
   }
 
   let { form = $bindable(), errors }: Props = $props();
+
+  // Slash first (the default for new edits); labels are examples of the rendered date.
+  const DATE_FORMAT_OPTIONS: readonly { value: DateFormat; label: string }[] = [
+    { value: 'YYYY/MM/DD', label: '2026/03/06' },
+    { value: 'YYYY.MM.DD', label: '2026.03.06' },
+    { value: 'YYYY年MM月DD日', label: '2026年03月06日' },
+  ];
 
   const EASING_LABELS: Record<(typeof EASINGS)[number], string> = {
     linear: '一定（linear）',
@@ -94,7 +101,6 @@
       {#if err('durationSeconds')}<p class="error" id="err-durationSeconds">{err('durationSeconds')}</p>{/if}
     </div>
   </div>
-  <p class="hint" data-testid="date-format">表示形式 YYYY.MM.DD</p>
 
   <details class="advanced" bind:open={advancedOpen} data-testid="advanced-settings">
     <summary>
@@ -104,6 +110,20 @@
     </summary>
 
     <div class="grid">
+      <div class="field">
+        <label for="dateFormat">日付の表示形式</label>
+        <select
+          id="dateFormat"
+          bind:value={form.dateFormat}
+          aria-invalid={!!err('dateFormat')}
+          aria-describedby={describedBy('dateFormat')}
+        >
+          {#each DATE_FORMAT_OPTIONS as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+        {#if err('dateFormat')}<p class="error" id="err-dateFormat">{err('dateFormat')}</p>{/if}
+      </div>
       <div class="field">
         <label for="fps">FPS</label>
         <select id="fps" bind:value={form.fps} aria-invalid={!!err('fps')} aria-describedby={describedBy('fps')}>
@@ -274,12 +294,6 @@
   .value {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
-  }
-
-  .hint {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
   }
 
   .error {

@@ -2,19 +2,23 @@
 import type { JobStage, JobStatus } from '../api/types.ts';
 import { formatDisplayDate, isoToOrdinal } from '../renderer/calendar.ts';
 import { FONTS, isFontId } from '../renderer/fonts.ts';
-import type { RenderConfig } from '../renderer/types.ts';
+import { LEGACY_DATE_FORMAT, type DateFormat, type RenderConfig } from '../renderer/types.ts';
 
-function displayDate(iso: string): string {
+function displayDate(iso: string, format: DateFormat): string {
   try {
-    return formatDisplayDate(isoToOrdinal(iso));
+    return formatDisplayDate(isoToOrdinal(iso), format);
   } catch {
     return iso;
   }
 }
 
-/** The job's identity in the history list, e.g. `2026.03.06 → 2020.01.01 · 15秒`. */
+/**
+ * The job's identity in the history list, in the job's own date format,
+ * e.g. `2026/03/06 → 2020/01/01 · 15秒`. Old jobs without a format were rendered with dots.
+ */
 export function summarizeRange(config: RenderConfig): string {
-  return `${displayDate(config.startDate)} → ${displayDate(config.endDate)} · ${config.durationSeconds}秒`;
+  const format = config.dateFormat ?? LEGACY_DATE_FORMAT;
+  return `${displayDate(config.startDate, format)} → ${displayDate(config.endDate, format)} · ${config.durationSeconds}秒`;
 }
 
 /** Output settings, e.g. `1920×1080 · 30fps · smootherstep`. */

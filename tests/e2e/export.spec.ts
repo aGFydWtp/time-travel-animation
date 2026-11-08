@@ -3,39 +3,54 @@ import { expect, test } from '@playwright/test';
 import { DEFAULT_CONFIG } from '../../src/lib/renderer/types.ts';
 import { completed, failed, makeJob, mockApi, openEditor, running } from './fixtures.ts';
 
-test('export: queued → running → completed shows one status line with downloads', async ({ page }) => {
+test('the 書き出す button carries the export state: queued → running → completed → re-export', async ({ page }) => {
   const queued = makeJob({ id: 'job-new' });
+  let creates = 0;
   const api = await mockApi(page, {
-    onCreate: () => ({ status: 202, body: { id: 'job-new', status: 'queued', reused: false } }),
+    onCreate: () => ({ status: 202, body: { id: ++creates === 1 ? 'job-new' : 'job-again', status: 'queued', reused: false } }),
     timelines: {
       'job-new': [queued, queued, running(queued, 40), running(queued, 80), completed(queued)],
+      'job-again': [running(makeJob({ id: 'job-again' }), 10)],
     },
   });
   await openEditor(page);
-  await expect(page.getByTestId('job-list')).toHaveCount(0); // no history list on the editor
+  const button = page.getByTestId('export-button');
+  await expect(button).toHaveText('書き出す');
+  await expect(page.getByTestId('export-summary')).toHaveText('1920×1080 · 30fps · 15秒 → 確認用MP4・透過MOV');
 
-  await page.getByRole('button', { name: '書き出す' }).click();
-  await expect(page.getByTestId('export-job')).toBeVisible();
-  await expect(page.getByTestId('export-notice')).toHaveCount(0); // one status line only
-
+  await button.click();
   const post = api.requests.find((r) => r.method === 'POST');
   expect((post?.body as { config: unknown }).config).toEqual(DEFAULT_CONFIG);
   expect((post?.body as { idempotencyKey?: string }).idempotencyKey).toBeTruthy();
 
-  const status = page.getByTestId('export-job');
-  await expect(status).toContainText('待機中');
-  await expect(status).toContainText('書き出し中', { timeout: 15_000 });
-  await expect(status.locator('progress')).toHaveAttribute('value', /^(40|80)$/);
+  // Busy: disabled, progress inside the pill, exposed as a progressbar.
+  await expect(button).toBeDisabled();
+  await expect(button).toContainText('待機中…');
+  await expect(button).toContainText(/書き出し中… (40|80)%/, { timeout: 15_000 });
+  await expect(page.getByTestId('export-progress')).toHaveAttribute('aria-valuenow', /^(40|80)$/);
+  await expect(page.getByTestId('export-summary')).toContainText('現在の設定');
+  await expect(page.getByTestId('export-notice')).toHaveCount(0);
 
-  await expect(status).toHaveAttribute('data-status', 'completed', { timeout: 20_000 });
-  await expect(status).toContainText('完了');
-  await expect(status.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
-  await expect(status.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
-  await expect(status.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
-  await expect(status.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
-  await expect(status.getByRole('link')).toHaveCount(2); // just the two downloads
-  await expect(page.getByRole('link', { name: '書き出し一覧' })).toHaveAttribute('href', '/history');
-  await expect(page.getByText('確認用MP4と透過MOVを作成します')).toBeVisible();
+  // Done: the button is back, with a result group holding the downloads.
+  await expect(button).toHaveText('書き出す', { timeout: 20_000 });
+  await expect(button).toBeEnabled();
+  await expect(page.getByTestId('export-progress')).toHaveCount(0);
+  const result = page.getByTestId('export-result');
+  await expect(result).toContainText('書き出しが完了しました');
+  await expect(result.getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
+  await expect(result.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-new/assets/mov?download=1');
+  await expect(result.getByTestId('download-mp4')).toHaveText('確認用MP4をダウンロード 2.3 MB');
+  await expect(result.getByTestId('download-mp4')).toHaveAttribute('href', '/api/renders/job-new/assets/mp4?download=1');
+
+  // Changing settings keeps the result but marks it as the previous export.
+  await page.getByLabel('長さ').fill('10');
+  await expect(result).toContainText('前回の書き出し');
+
+  // Pressing 書き出す again starts a new export.
+  await button.click();
+  await expect.poll(() => api.requests.filter((r) => r.method === 'POST').length).toBe(2);
+  await expect(button).toContainText('書き出し中… 10%');
+  await expect(page.getByTestId('export-result')).toHaveCount(0);
 });
 
 test('editing stays possible while an export is running', async ({ page }) => {
@@ -46,30 +61,33 @@ test('editing stays possible while an export is running', async ({ page }) => {
   });
   await openEditor(page);
   await page.getByTestId('export-button').click();
-  await expect(page.getByTestId('export-job')).toContainText('書き出し中');
+  await expect(page.getByTestId('export-button')).toContainText('書き出し中… 10%');
 
-  await page.getByLabel('終了日').fill('2022-12-31');
+  await page.getByLabel('終了日').fill('2022/12/31');
   await page.getByTestId('seek').fill('449');
-  await expect(page.getByTestId('current-date')).toHaveText('2022.12.31');
-  await expect(page.getByTestId('export-button')).toBeEnabled();
+  await expect(page.getByTestId('current-date')).toHaveText('2022/12/31');
+  await expect(page.getByTestId('export-summary')).toContainText('（書き出し中の設定とは異なります）');
+  await expect(page.getByTestId('export-button')).toBeDisabled();
 });
 
-test('failed export shows the reason inline and can be retried', async ({ page }) => {
+test('a failed export says why; pressing 書き出す again is the retry', async ({ page }) => {
   const bad = failed(makeJob({ id: 'job-bad' }));
-  const retried = makeJob({ id: 'job-retry', attempt: 2 });
+  let creates = 0;
   const api = await mockApi(page, {
-    onCreate: () => ({ status: 202, body: { id: 'job-bad', status: 'queued', reused: false } }),
-    onRetry: () => ({ status: 202, body: { id: 'job-retry', status: 'queued', reused: false } }),
-    timelines: { 'job-bad': [bad], 'job-retry': [retried] },
+    onCreate: () => ({ status: 202, body: { id: ++creates === 1 ? 'job-bad' : 'job-ok', status: 'queued', reused: false } }),
+    timelines: { 'job-bad': [bad], 'job-ok': [completed(makeJob({ id: 'job-ok' }))] },
   });
   await openEditor(page);
   await page.getByTestId('export-button').click();
 
-  const status = page.getByTestId('export-job');
-  await expect(status).toContainText('失敗：動画のエンコードに失敗しました。');
-  await status.getByRole('button', { name: 'もう一度書き出す' }).click();
-  expect(api.requests.some((r) => r.method === 'POST' && r.path === '/api/renders/job-bad/retry')).toBe(true);
-  await expect(status).toContainText('待機中');
+  const result = page.getByTestId('export-result');
+  await expect(result).toHaveText('書き出しに失敗しました：動画のエンコードに失敗しました。');
+  await expect(page.getByRole('button', { name: /再試行|もう一度/ })).toHaveCount(0);
+  await expect(page.getByTestId('export-button')).toBeEnabled();
+
+  await page.getByTestId('export-button').click();
+  await expect(result).toContainText('書き出しが完了しました');
+  expect(api.requests.filter((r) => r.method === 'POST' && r.path === '/api/renders')).toHaveLength(2);
 });
 
 test('a reused job is noted once', async ({ page }) => {
@@ -80,7 +98,7 @@ test('a reused job is noted once', async ({ page }) => {
   await openEditor(page);
   await page.getByTestId('export-button').click();
   await expect(page.getByTestId('export-notice')).toHaveText('同じ設定の書き出しが進行中です');
-  await expect(page.getByTestId('export-job')).toContainText('20%');
+  await expect(page.getByTestId('export-button')).toContainText('書き出し中… 20%');
 });
 
 test('429 on export shows a rate-limit message', async ({ page }) => {
@@ -114,7 +132,7 @@ test('resubmitting the same config after a server error reuses the idempotency k
   await page.getByTestId('export-button').click();
   await expect(page.getByTestId('export-notice')).toContainText('サーバーでエラーが発生しました');
   await page.getByTestId('export-button').click();
-  await expect(page.getByTestId('export-job')).toContainText('完了');
+  await expect(page.getByTestId('export-result')).toContainText('書き出しが完了しました');
   expect(keys()).toHaveLength(2);
   expect(keys()[1]).toBe(keys()[0]);
 

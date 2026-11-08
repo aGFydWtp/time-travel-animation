@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import fontUrl from '../../../assets/fonts/JetBrainsMono-Regular.woff2?url';
   import { loadFont } from '../renderer/fonts.ts';
   import { clampFrameIndex, getDateAtFrame, getTotalFrames } from '../renderer/frames.ts';
   import { renderFrame } from '../renderer/render-frame.ts';
@@ -15,8 +14,23 @@
 
   let { config }: Props = $props();
 
+  // Every bundled font file as a URL, keyed by file name (FONTS[*].faces[*].file).
+  const FONT_URLS = Object.fromEntries(
+    Object.entries(
+      import.meta.glob<string>('../../../assets/fonts/*.woff2', { query: '?url', eager: true, import: 'default' }),
+    ).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1), url]),
+  );
+  const resolveFontUrl = (file: string) => FONT_URLS[file] ?? '';
+
   let canvas: HTMLCanvasElement | undefined = $state();
-  let fontState: 'loading' | 'ready' | 'error' = $state('loading');
+  /** Font id that is loaded and used for drawing; lags behind config.fontFamily while a new font loads. */
+  let drawnFont: string | null = $state(null);
+  let fontError = $state(false);
+  const fontState = $derived(drawnFont === null ? (fontError ? 'error' : 'loading') : 'ready');
+  // Keep drawing with the previous font until the newly chosen one has loaded.
+  const drawConfig = $derived(
+    drawnFont === null || drawnFont === config.fontFamily ? config : { ...config, fontFamily: drawnFont },
+  );
   let rawFrame = $state(0);
   let playing = $state(false);
 
@@ -27,24 +41,37 @@
   const clock = new PlaybackClock(() => performance.now());
   let rafId = 0;
 
-  onMount(() => {
-    // The bundled font must be loaded before any frame is drawn (spec §5.2).
-    loadFont(config.fontFamily, fontUrl).then(
-      () => (fontState = 'ready'),
-      () => (fontState = 'error'),
+  onMount(() => () => cancelAnimationFrame(rafId));
+
+  // Fonts load lazily, per chosen font, and must be loaded before a frame uses them (spec §5.2).
+  $effect(() => {
+    const id = config.fontFamily;
+    if (id === drawnFont) return;
+    let cancelled = false;
+    fontError = false;
+    loadFont(id, resolveFontUrl).then(
+      () => {
+        if (!cancelled) drawnFont = id;
+      },
+      () => {
+        if (!cancelled) fontError = true;
+      },
     );
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      cancelled = true;
+    };
   });
 
   // Redraw whenever the config or frame changes. Canvas intrinsic size = output resolution;
   // CSS scales it. Backgrounds are CSS only — renderFrame clears to transparent.
   $effect(() => {
-    if (!canvas || fontState !== 'ready') return;
-    if (canvas.width !== config.width) canvas.width = config.width;
-    if (canvas.height !== config.height) canvas.height = config.height;
+    if (!canvas || drawnFont === null) return;
+    const cfg = drawConfig;
+    if (canvas.width !== cfg.width) canvas.width = cfg.width;
+    if (canvas.height !== cfg.height) canvas.height = cfg.height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    renderFrame(ctx, frame, config);
+    renderFrame(ctx, frame, cfg);
   });
 
   function tick() {
@@ -109,13 +136,14 @@
       height={config.height}
       data-testid="preview-canvas"
       data-ready={fontState === 'ready' ? 'true' : 'false'}
+      data-font={drawnFont}
       data-frame={frame}
       aria-label={`プレビュー: ${currentDate}（フレーム ${frame}）`}
     ></canvas>
-    {#if fontState === 'loading'}
-      <p class="stage-note">フォントを読み込み中…</p>
-    {:else if fontState === 'error'}
+    {#if fontError}
       <p class="stage-note error" role="alert">フォントを読み込めませんでした。ページを再読み込みしてください。</p>
+    {:else if drawnFont !== config.fontFamily}
+      <p class="stage-note">フォントを読み込み中…</p>
     {/if}
   </div>
 

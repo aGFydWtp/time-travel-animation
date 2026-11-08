@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import '../src/lib/ui/global.css';
   import { ApiError, api, describeApiError } from '../src/lib/api/client.ts';
-  import ExportJobStatus from '../src/lib/components/ExportJobStatus.svelte';
+  import ExportResult from '../src/lib/components/ExportResult.svelte';
   import PreviewPane from '../src/lib/components/PreviewPane.svelte';
   import SettingsPanel from '../src/lib/components/SettingsPanel.svelte';
   import SiteHeader from '../src/lib/components/SiteHeader.svelte';
@@ -14,9 +14,11 @@
     formFromConfig,
     formToConfigInput,
   } from '../src/lib/ui/editor-form.ts';
+  import { clampProgress } from '../src/lib/ui/format.ts';
   import { IdempotencyKeys, isTerminalCreateError } from '../src/lib/ui/idempotency.ts';
   import { JobTracker } from '../src/lib/ui/job-tracker.svelte.ts';
   import { saveLastConfig } from '../src/lib/ui/last-config.ts';
+  import { isActiveJob } from '../src/lib/ui/poll.ts';
 
   // ---- editor ----------------------------------------------------------
   let form = $state(defaultForm());
@@ -37,6 +39,22 @@
     saveLastConfig(previewConfig);
   });
 
+  // Hash of the current settings, to tell whether the tracked export still matches them.
+  let currentHash: string | null = $state(null);
+  let hashToken = 0;
+  $effect(() => {
+    const config = previewConfig;
+    const token = ++hashToken;
+    hashConfig(config).then(
+      (hash) => {
+        if (token === hashToken) currentHash = hash;
+      },
+      () => {
+        if (token === hashToken) currentHash = null;
+      },
+    );
+  });
+
   // ---- export ----------------------------------------------------------
   let exporting = $state(false);
   let notice: { kind: 'ok' | 'error'; text: string } | null = $state(null);
@@ -44,8 +62,19 @@
   const tracker = new JobTracker(api, { mode: 'single' });
   const trackedJob = $derived(tracker.jobs[0] ?? null);
 
+  // The button carries the export state: idle → busy (progress inside) → idle again.
+  const busy = $derived(
+    trackedJob !== null && isActiveJob(trackedJob) && !tracker.unavailableIds.has(trackedJob.id) && !tracker.authLost,
+  );
+  const busyPct = $derived(busy && trackedJob?.status === 'running' ? clampProgress(trackedJob.progress) : 0);
+  const busyLabel = $derived(trackedJob?.status === 'running' ? `書き出し中… ${busyPct}%` : '待機中…');
+  const settingsChanged = $derived(trackedJob !== null && currentHash !== null && trackedJob.configHash !== currentHash);
+  const finishedJob = $derived(
+    trackedJob && (trackedJob.status === 'completed' || trackedJob.status === 'failed') ? trackedJob : null,
+  );
+
   async function startExport() {
-    if (!parsed.success || exporting) return;
+    if (!parsed.success || exporting || busy) return;
     const config = parsed.data;
     exporting = true;
     notice = null;
@@ -110,36 +139,55 @@
 
       <section class="export" aria-labelledby="export-title">
         <h2 id="export-title" class="visually-hidden">書き出し</h2>
-        <div class="export-row">
+        <div class="cta">
           <button
             type="button"
             class="primary"
+            class:busy
             onclick={startExport}
-            disabled={!parsed.success || exporting}
-            aria-describedby="export-note export-status"
+            disabled={!parsed.success || exporting || busy}
+            aria-describedby="export-summary"
+            style:--pct={`${busyPct}%`}
             data-testid="export-button"
           >
-            {exporting ? '送信中…' : '書き出す'}
+            {#if busy}
+              <span class="label">{busyLabel}</span>
+              <span class="label fill" aria-hidden="true">{busyLabel}</span>
+            {:else}
+              {exporting ? '送信中…' : '書き出す'}
+            {/if}
           </button>
-          <span class="muted">{previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒</span>
+          {#if busy}
+            <span
+              class="visually-hidden"
+              role="progressbar"
+              aria-label="書き出しの進捗"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow={busyPct}
+              aria-valuetext={busyLabel}
+              data-testid="export-progress"
+            ></span>
+          {/if}
+          <p class="muted" id="export-summary" data-testid="export-summary">
+            {busy ? '現在の設定 ' : ''}{previewConfig.width}×{previewConfig.height} · {previewConfig.fps}fps · {previewConfig.durationSeconds}秒 → 確認用MP4・透過MOV
+            {#if busy && settingsChanged}<span>（書き出し中の設定とは異なります）</span>{/if}
+          </p>
         </div>
-        <p class="muted" id="export-note">確認用MP4と透過MOVを作成します</p>
-        <div id="export-status" class="status" aria-live="polite">
+
+        <div class="status" aria-live="polite">
           {#if errorCount > 0}
             <p class="error">入力内容に {errorCount} 件のエラーがあります</p>
           {:else if notice}
-            <p class:error={notice.kind === 'error'} data-testid="export-notice">{notice.text}</p>
-          {/if}
-          {#if trackedJob}
-            <ExportJobStatus
-              job={trackedJob}
-              unavailable={tracker.unavailableIds.has(trackedJob.id)}
-              retrying={tracker.retryingIds.has(trackedJob.id)}
-              onRetry={(job) => tracker.retry(job)}
-            />
+            <p class:error={notice.kind === 'error'} class:muted={notice.kind === 'ok'} data-testid="export-notice">{notice.text}</p>
           {/if}
           {#if tracker.error}
             <p class="error" role="alert">{tracker.error}</p>
+          {:else if trackedJob && tracker.unavailableIds.has(trackedJob.id)}
+            <p class="muted">書き出しの情報を取得できません</p>
+          {/if}
+          {#if finishedJob && !busy}
+            <ExportResult job={finishedJob} stale={settingsChanged} />
           {/if}
         </div>
       </section>
@@ -156,23 +204,25 @@
 
   .group {
     display: grid;
-    gap: 16px;
+    gap: 32px;
     min-width: 0;
   }
 
   .export {
     display: grid;
-    gap: 4px;
+    gap: 16px;
   }
 
-  .export-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 16px;
+  /* Button + the line describing what it will produce = one group. */
+  .cta {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
   }
 
   .primary {
+    position: relative;
+    min-width: 11em;
     min-height: 40px;
     padding: 0 20px;
     border-radius: 9999px;
@@ -180,25 +230,56 @@
     color: #fff;
     font-size: 15px;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .primary:hover:not(:disabled) {
     background: #333;
   }
 
+  /* Busy: the pill is the progress bar. Dark fill grows left→right; a white copy of the label is clipped to it. */
+  .primary.busy {
+    overflow: hidden;
+    background: #e6e6e6;
+    color: var(--ink);
+    opacity: 1;
+    cursor: progress;
+  }
+
+  .primary.busy .fill {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ink);
+    color: #fff;
+    clip-path: inset(0 calc(100% - var(--pct)) 0 0);
+    transition: clip-path 0.3s ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .primary.busy .fill {
+      transition: none;
+    }
+  }
+
   .export p {
     margin: 0;
+    font-size: 13px;
   }
 
   .muted {
     color: var(--muted);
-    font-size: 13px;
   }
 
   .status {
     display: grid;
-    gap: 4px;
-    font-size: 13px;
+    gap: 8px;
+  }
+
+  .status:empty {
+    display: none;
   }
 
   .error {

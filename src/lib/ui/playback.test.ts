@@ -75,8 +75,8 @@ describe('playbackStep', () => {
   it('0% shows the start date and the end shows the end date', () => {
     const first = playbackStep(0, DEFAULT_CONFIG).frame;
     const last = playbackStep(DEFAULT_CONFIG.durationSeconds, DEFAULT_CONFIG).frame;
-    expect(getDateAtFrame(first, DEFAULT_CONFIG)).toBe('2026.03.06');
-    expect(getDateAtFrame(last, DEFAULT_CONFIG)).toBe('2020.01.01');
+    expect(getDateAtFrame(first, DEFAULT_CONFIG)).toBe('2026/03/06');
+    expect(getDateAtFrame(last, DEFAULT_CONFIG)).toBe('2020/01/01');
   });
 
   it('frameToSeconds round-trips through the frame mapping', () => {

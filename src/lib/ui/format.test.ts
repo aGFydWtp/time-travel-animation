@@ -12,8 +12,16 @@ import {
 
 describe('summarizeRange / summarizeOutput', () => {
   it('summarizes the default config', () => {
-    expect(summarizeRange(DEFAULT_CONFIG)).toBe('2026.03.06 → 2020.01.01 · 15秒');
+    expect(summarizeRange(DEFAULT_CONFIG)).toBe('2026/03/06 → 2020/01/01 · 15秒');
     expect(summarizeOutput(DEFAULT_CONFIG)).toBe('1920×1080 · 30fps · smootherstep');
+  });
+
+  it("uses the job's own date format (dots for legacy jobs without one)", () => {
+    expect(summarizeRange({ ...DEFAULT_CONFIG, dateFormat: 'YYYY年MM月DD日' })).toBe(
+      '2026年03月06日 → 2020年01月01日 · 15秒',
+    );
+    const legacy = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([key]) => key !== 'dateFormat'));
+    expect(summarizeRange(legacy as unknown as typeof DEFAULT_CONFIG)).toBe('2026.03.06 → 2020.01.01 · 15秒');
   });
 
   it('keeps tenth-second durations', () => {
@@ -36,7 +44,7 @@ describe('formatShortTimestamp', () => {
 
 describe('summarizeStyle', () => {
   it('shows font label, size, colour and position', () => {
-    expect(summarizeStyle(DEFAULT_CONFIG)).toBe('JetBrains Mono · 96px · #FFFFFF · 位置 0.50, 0.50');
+    expect(summarizeStyle(DEFAULT_CONFIG)).toBe('等幅（JetBrains Mono） · 96px · #FFFFFF · 位置 0.50, 0.50');
   });
 });
 

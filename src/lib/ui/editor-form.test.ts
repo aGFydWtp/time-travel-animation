@@ -11,7 +11,15 @@ describe('form <-> config', () => {
   });
 
   it('round-trips a non-default config (load into editor)', () => {
-    const config = { ...DEFAULT_CONFIG, width: 1280 as const, height: 720 as const, fps: 24 as const, x: 0.2 };
+    const config = {
+      ...DEFAULT_CONFIG,
+      width: 1280 as const,
+      height: 720 as const,
+      fps: 24 as const,
+      x: 0.2,
+      dateFormat: 'YYYY年MM月DD日' as const,
+      fontFamily: 'noto-serif-jp',
+    };
     const parsed = safeParseRenderConfig(formToConfigInput(formFromConfig(config)));
     expect(parsed.data).toEqual(config);
   });
@@ -38,6 +46,11 @@ describe('fieldErrors', () => {
     expect(errors.durationSeconds).toBeTruthy();
     expect(errors.color).toBeTruthy();
     expect(errors.endDate).toBeUndefined();
+  });
+
+  it('maps an unknown date format to its field', () => {
+    const parsed = safeParseRenderConfig(formToConfigInput({ ...defaultForm(), dateFormat: 'DD/MM/YYYY' }));
+    expect(fieldErrors(parsed.error?.issues)).toHaveProperty('dateFormat');
   });
 
   it('ignores unknown paths', () => {
