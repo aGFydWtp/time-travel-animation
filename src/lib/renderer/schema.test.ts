@@ -23,6 +23,11 @@ describe('renderConfigSchema', () => {
     ['font size bounds', { fontSize: 24 }],
     ['font size max', { fontSize: 240 }],
     ['corner position', { x: 0, y: 1 }],
+    ['dot format', { dateFormat: 'YYYY.MM.DD' }],
+    ['kanji format', { dateFormat: 'YYYY年MM月DD日' }],
+    ['legacy font id', { fontFamily: 'bundled-mono' }],
+    ['serif font', { fontFamily: 'noto-serif-jp' }],
+    ['digital font', { fontFamily: 'digital' }],
   ])('accepts %s', (_name, o) => {
     expect(renderConfigSchema.safeParse(withOverride(o)).success).toBe(true);
   });
@@ -57,6 +62,9 @@ describe('renderConfigSchema', () => {
     ['x < 0', { x: -0.01 }],
     ['y > 1', { y: 1.01 }],
     ['extra key', { previewBackground: 'checkerboard' }],
+    ['unknown date format', { dateFormat: 'DD/MM/YYYY' }],
+    ['date format null', { dateFormat: null }],
+    ['font id is a family name', { fontFamily: 'DCS JetBrains Mono' }],
   ])('rejects %s', (_name, o) => {
     expect(renderConfigSchema.safeParse(withOverride(o)).success).toBe(false);
   });
@@ -66,6 +74,30 @@ describe('renderConfigSchema', () => {
     expect(renderConfigSchema.safeParse(missing).success).toBe(false);
     expect(renderConfigSchema.safeParse(null).success).toBe(false);
     expect(renderConfigSchema.safeParse('{}').success).toBe(false);
+  });
+});
+
+describe('dateFormat back-compat', () => {
+  it('DEFAULT_CONFIG (new edits) uses slashes', () => {
+    expect(DEFAULT_CONFIG.dateFormat).toBe('YYYY/MM/DD');
+    expect(renderConfigSchema.parse(base).dateFormat).toBe('YYYY/MM/DD');
+  });
+
+  it('a config without dateFormat (old job / old client) parses as the legacy dot format', () => {
+    const { dateFormat: _d, ...legacy } = base;
+    const parsed = renderConfigSchema.parse(legacy);
+    expect(parsed.dateFormat).toBe('YYYY.MM.DD');
+    expect(parsed).toEqual({ ...DEFAULT_CONFIG, dateFormat: 'YYYY.MM.DD' });
+  });
+
+  it('canonical string always contains dateFormat and the hash depends on it', async () => {
+    const { dateFormat: _d, ...legacy } = base;
+    expect(JSON.parse(canonicalConfigString(legacy)).dateFormat).toBe('YYYY.MM.DD');
+    expect(canonicalConfigString(legacy)).toBe(canonicalConfigString(withOverride({ dateFormat: 'YYYY.MM.DD' })));
+    const hashes = await Promise.all(
+      (['YYYY.MM.DD', 'YYYY/MM/DD', 'YYYY年MM月DD日'] as const).map((f) => hashConfig(withOverride({ dateFormat: f }))),
+    );
+    expect(new Set(hashes).size).toBe(3);
   });
 });
 

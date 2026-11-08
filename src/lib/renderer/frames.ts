@@ -3,7 +3,8 @@ import { ease } from './easing.ts';
 import type { RenderConfig } from './types.ts';
 
 type FrameTimingConfig = Pick<RenderConfig, 'fps' | 'durationSeconds'>;
-type FrameDateConfig = Pick<RenderConfig, 'fps' | 'durationSeconds' | 'startDate' | 'endDate' | 'easing'>;
+type FrameOrdinalConfig = Pick<RenderConfig, 'fps' | 'durationSeconds' | 'startDate' | 'endDate' | 'easing'>;
+type FrameDateConfig = FrameOrdinalConfig & Pick<RenderConfig, 'dateFormat'>;
 
 /**
  * N = round(fps * durationSeconds), at least 1.
@@ -22,7 +23,7 @@ export function clampFrameIndex(frameIndex: number, totalFrames: number): number
 }
 
 /** Calendar-day ordinal shown at the given frame (spec §5.1). */
-export function getOrdinalAtFrame(frameIndex: number, config: FrameDateConfig): number {
+export function getOrdinalAtFrame(frameIndex: number, config: FrameOrdinalConfig): number {
   const startDay = isoToOrdinal(config.startDate);
   const endDay = isoToOrdinal(config.endDate);
   const n = getTotalFrames(config);
@@ -33,9 +34,9 @@ export function getOrdinalAtFrame(frameIndex: number, config: FrameDateConfig): 
   return Math.round(startDay + (endDay - startDay) * p);
 }
 
-/** Display string `YYYY.MM.DD` shown at the given frame. */
+/** Display string (in config.dateFormat) shown at the given frame. */
 export function getDateAtFrame(frameIndex: number, config: FrameDateConfig): string {
-  return formatDisplayDate(getOrdinalAtFrame(frameIndex, config));
+  return formatDisplayDate(getOrdinalAtFrame(frameIndex, config), config.dateFormat);
 }
 
 /** Frame index for a playback time in seconds (preview seek / playback). */

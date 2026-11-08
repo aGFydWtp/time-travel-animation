@@ -6,7 +6,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { getDateAtFrame, getTotalFrames, parseRenderConfig, type RenderConfig } from '../../src/lib/renderer/index.ts';
+import { FONT_IDS, getDateAtFrame, getTotalFrames, parseRenderConfig, type RenderConfig } from '../../src/lib/renderer/index.ts';
 import {
   alphaStats,
   checkAlphaFrame,
@@ -40,6 +40,13 @@ function alphaDiffFraction(a: Buffer, b: Buffer): number {
   let diff = 0;
   for (let i = 3; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) > 32) diff++;
   return diff / (a.length / 4);
+}
+
+/** Number of pixels with any coverage (alpha > 0). */
+function inkPixels(rgba: Buffer): number {
+  let n = 0;
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] > 0) n++;
+  return n;
 }
 
 /** Max per-channel RGB difference over pixels opaque in both images. */
@@ -161,5 +168,62 @@ describe.skipIf(!HAS_DOCKER)('container renderer (docker)', () => {
     expect(alphaDiffFraction(goldFirst, goldLast)).toBeGreaterThan(0.002);
     expect(alphaDiffFraction(movFirst, goldLast)).toBeGreaterThan(0.002);
     expect(alphaDiffFraction(movLast, goldFirst)).toBeGreaterThan(0.002);
+  });
+
+  describe('date format 年月日 and font library', () => {
+    const KANJI = 'YYYY年MM月DD日' as const;
+    const kanjiOut = join(OUT, 'kanji');
+    const stills: Record<string, Buffer> = {};
+    let kanjiConfig: RenderConfig;
+    let kanjiResult: Record<string, any>;
+
+    beforeAll(async () => {
+      // Short full render (1s) with the kanji format through the whole pipeline (in-container verify).
+      kanjiConfig = parseRenderConfig({ ...config, dateFormat: KANJI, durationSeconds: 1 });
+      const cfgPath = join(OUT, 'kanji.json');
+      await writeFile(cfgPath, JSON.stringify(kanjiConfig));
+      expect(await renderInDocker({ configPath: cfgPath, outDir: kanjiOut, image })).toBe(0);
+      kanjiResult = JSON.parse(await readFile(join(kanjiOut, 'result.json'), 'utf8'));
+
+      // One still per font: the start date in the kanji format (start == end -> frame 0 is that date).
+      for (const fontFamily of FONT_IDS) {
+        const still = { ...config, fontFamily, dateFormat: KANJI, endDate: config.startDate };
+        const p = join(OUT, `font-${fontFamily}.json`);
+        const dir = join(OUT, `font-${fontFamily}`);
+        await writeFile(p, JSON.stringify(still));
+        expect(await renderInDocker({ configPath: p, outDir: dir, image, entryArgs: ['--stills', '0'] }), fontFamily).toBe(0);
+        stills[fontFamily] = await extractFrame(join(dir, 'stills/frame_00000.png'), 0, config.width, config.height, 'rgba', tools);
+      }
+    });
+
+    test('kanji render succeeds with all in-container checks passing', () => {
+      expect(getDateAtFrame(0, kanjiConfig)).toBe('2026年03月06日');
+      expect(kanjiResult.ok).toBe(true);
+      expect(kanjiResult.totalFrames).toBe(24);
+      expect((kanjiResult.verification.checks as { ok: boolean }[]).filter((c) => !c.ok)).toEqual([]);
+    });
+
+    test('kanji MOV first frame matches the golden still and differs from the dot format', async () => {
+      const { width, height } = config;
+      const movFirst = await extractFrame(join(kanjiOut, 'transparent.mov'), 0, width, height, 'rgba', tools);
+      const goldKanji = stills['bundled-mono']!;
+      const goldDot = await extractFrame(join(golden.first, 'stills/frame_00000.png'), 0, width, height, 'rgba', tools);
+      expect(alphaDiffFraction(movFirst, goldKanji)).toBeLessThan(0.0002);
+      expect(opaqueRgbMaxDiff(movFirst, goldKanji)).toBeLessThanOrEqual(4);
+      // Same date, same font, different format: 年月日 glyphs (wider than '.') change the image a lot.
+      expect(alphaDiffFraction(goldKanji, goldDot)).toBeGreaterThan(0.002);
+      // and the kanji string is wider, so it covers more pixels than the dotted one
+      expect(inkPixels(goldKanji)).toBeGreaterThan(inkPixels(goldDot) * 1.2);
+    });
+
+    test('every font renders non-empty glyphs, and all fonts differ pairwise', () => {
+      for (const id of FONT_IDS) expect(inkPixels(stills[id]!), id).toBeGreaterThan(3000);
+      for (let i = 0; i < FONT_IDS.length; i++) {
+        for (let j = i + 1; j < FONT_IDS.length; j++) {
+          const [a, b] = [FONT_IDS[i]!, FONT_IDS[j]!];
+          expect(alphaDiffFraction(stills[a]!, stills[b]!), `${a} vs ${b}`).toBeGreaterThan(0.002);
+        }
+      }
+    });
   });
 });

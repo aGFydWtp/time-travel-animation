@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isValidIsoDate } from './calendar.ts';
 import { isFontId } from './fonts.ts';
-import { CONFIG_LIMITS, EASINGS, RESOLUTIONS, type RenderConfig } from './types.ts';
+import { CONFIG_LIMITS, DATE_FORMATS, EASINGS, LEGACY_DATE_FORMAT, RESOLUTIONS, type RenderConfig } from './types.ts';
 
 const DURATION_STEP_TOLERANCE = 1e-6;
 
@@ -27,6 +27,9 @@ export const renderConfigSchema = z
     width: z.union([z.literal(1280), z.literal(1920)]),
     height: z.union([z.literal(720), z.literal(1080)]),
     easing: z.enum(EASINGS),
+    // Optional on input for back-compat (old stored jobs / old clients rendered dots); always
+    // present in the parsed output, so it is part of the canonical string and the hash.
+    dateFormat: z.enum(DATE_FORMATS).default(LEGACY_DATE_FORMAT),
     fontFamily: z.string().refine(isFontId, { message: 'Unknown font' }),
     fontSize: z.number().int().min(CONFIG_LIMITS.fontSize.min).max(CONFIG_LIMITS.fontSize.max),
     color: z

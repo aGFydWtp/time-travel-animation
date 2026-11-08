@@ -8,6 +8,8 @@
  * Algorithm: Howard Hinnant's days_from_civil / civil_from_days.
  */
 
+import type { DateFormat } from './types.ts';
+
 export const MIN_YEAR = 1000;
 export const MAX_YEAR = 9999;
 
@@ -117,7 +119,18 @@ export function ordinalToIso(ordinal: number): string {
   return formatWith(ordinal, '-');
 }
 
-/** Ordinal -> display string `YYYY.MM.DD`. */
-export function formatDisplayDate(ordinal: number): string {
-  return formatWith(ordinal, '.');
+/** Ordinal -> display string in the given format (default `YYYY.MM.DD`). */
+export function formatDisplayDate(ordinal: number, format: DateFormat = 'YYYY.MM.DD'): string {
+  switch (format) {
+    case 'YYYY.MM.DD':
+      return formatWith(ordinal, '.');
+    case 'YYYY/MM/DD':
+      return formatWith(ordinal, '/');
+    case 'YYYY年MM月DD日': {
+      const { year, month, day } = ordinalToDate(ordinal);
+      return `${pad(year, 4)}年${pad(month, 2)}月${pad(day, 2)}日`;
+    }
+    default:
+      throw new RangeError(`Unknown date format: ${String(format satisfies never)}`);
+  }
 }

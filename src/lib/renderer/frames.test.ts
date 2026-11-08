@@ -3,7 +3,9 @@ import { isoToOrdinal } from './calendar.ts';
 import { getDateAtFrame, getFrameAtTime, getOrdinalAtFrame, getTotalFrames } from './frames.ts';
 import { DEFAULT_CONFIG, EASINGS, type RenderConfig } from './types.ts';
 
-const cfg = (overrides: Partial<RenderConfig> = {}): RenderConfig => ({ ...DEFAULT_CONFIG, ...overrides });
+// Spec examples use the dot format; DEFAULT_CONFIG itself uses slashes (see the dateFormat tests).
+const DOT_CONFIG: RenderConfig = { ...DEFAULT_CONFIG, dateFormat: 'YYYY.MM.DD' };
+const cfg = (overrides: Partial<RenderConfig> = {}): RenderConfig => ({ ...DOT_CONFIG, ...overrides });
 
 /** Every displayed date must parse back as a real calendar date. */
 function assertValidDisplay(display: string): number {
@@ -33,15 +35,15 @@ describe('getTotalFrames', () => {
 
 describe('getDateAtFrame', () => {
   it('default config: frame 0 = 2026.03.06, frame 449 = 2020.01.01', () => {
-    expect(getDateAtFrame(0, DEFAULT_CONFIG)).toBe('2026.03.06');
-    expect(getDateAtFrame(449, DEFAULT_CONFIG)).toBe('2020.01.01');
+    expect(getDateAtFrame(0, DOT_CONFIG)).toBe('2026.03.06');
+    expect(getDateAtFrame(449, DOT_CONFIG)).toBe('2020.01.01');
   });
 
   it('clamps out-of-range frame indices', () => {
-    expect(getDateAtFrame(-10, DEFAULT_CONFIG)).toBe('2026.03.06');
-    expect(getDateAtFrame(450, DEFAULT_CONFIG)).toBe('2020.01.01');
-    expect(getDateAtFrame(1e9, DEFAULT_CONFIG)).toBe('2020.01.01');
-    expect(getDateAtFrame(Number.NaN, DEFAULT_CONFIG)).toBe('2026.03.06');
+    expect(getDateAtFrame(-10, DOT_CONFIG)).toBe('2026.03.06');
+    expect(getDateAtFrame(450, DOT_CONFIG)).toBe('2020.01.01');
+    expect(getDateAtFrame(1e9, DOT_CONFIG)).toBe('2020.01.01');
+    expect(getDateAtFrame(Number.NaN, DOT_CONFIG)).toBe('2026.03.06');
   });
 
   it.each(EASINGS)('forward / backward / same-day with %s', (easing) => {
@@ -126,6 +128,34 @@ describe('getDateAtFrame', () => {
       expect(prev).toBe(isoToOrdinal(c.endDate));
     });
   }
+});
+
+describe('getDateAtFrame dateFormat', () => {
+  it('DEFAULT_CONFIG renders slashes', () => {
+    expect(DEFAULT_CONFIG.dateFormat).toBe('YYYY/MM/DD');
+    expect(getDateAtFrame(0, DEFAULT_CONFIG)).toBe('2026/03/06');
+    expect(getDateAtFrame(449, DEFAULT_CONFIG)).toBe('2020/01/01');
+  });
+
+  it.each([
+    ['YYYY.MM.DD', '2026.03.06', '2020.01.01'],
+    ['YYYY/MM/DD', '2026/03/06', '2020/01/01'],
+    ['YYYY年MM月DD日', '2026年03月06日', '2020年01月01日'],
+  ] as const)('honours %s', (dateFormat, first, last) => {
+    const c = cfg({ dateFormat });
+    expect(getDateAtFrame(0, c)).toBe(first);
+    expect(getDateAtFrame(getTotalFrames(c) - 1, c)).toBe(last);
+  });
+
+  it('same ordinal sequence in every format (only the formatting differs)', () => {
+    const c = cfg({ startDate: '2024-02-27', endDate: '2024-03-02', durationSeconds: 1 });
+    for (let i = 0; i < getTotalFrames(c); i++) {
+      const dot = getDateAtFrame(i, c);
+      expect(getDateAtFrame(i, { ...c, dateFormat: 'YYYY/MM/DD' })).toBe(dot.replaceAll('.', '/'));
+      const [y, m, d] = dot.split('.');
+      expect(getDateAtFrame(i, { ...c, dateFormat: 'YYYY年MM月DD日' })).toBe(`${y}年${m}月${d}日`);
+    }
+  });
 });
 
 describe('getFrameAtTime', () => {

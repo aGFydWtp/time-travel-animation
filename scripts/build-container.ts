@@ -3,7 +3,7 @@
 //
 // dist/render-page.html + render-page.js  -> page run in headless Chromium (shared src/lib/renderer)
 // dist/render-entry.mjs                   -> Node entry (playwright-core stays external, installed in the image)
-// dist/JetBrainsMono-Regular.woff2        -> bundled font, loaded by the page via a relative URL
+// dist/*.woff2                            -> every bundled font file (FONT_FILES), loaded by the page via relative URLs
 // dist/package.json                       -> pins playwright-core to the repo's installed version
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -21,7 +21,7 @@ async function readPlaywrightCoreVersion(): Promise<string> {
 }
 
 export async function buildContainer(options: { quiet?: boolean } = {}): Promise<string> {
-  const { FONTS } = await import('../src/lib/renderer/fonts.ts');
+  const { FONT_FILES } = await import('../src/lib/renderer/fonts.ts');
   await rm(DIST_DIR, { recursive: true, force: true });
   await mkdir(DIST_DIR, { recursive: true });
 
@@ -51,8 +51,8 @@ export async function buildContainer(options: { quiet?: boolean } = {}): Promise
   });
 
   await copyFile(join(ROOT, 'container', 'render-page.html'), join(DIST_DIR, 'render-page.html'));
-  for (const font of Object.values(FONTS)) {
-    await copyFile(join(ROOT, 'assets', 'fonts', font.file), join(DIST_DIR, font.file));
+  for (const file of FONT_FILES) {
+    await copyFile(join(ROOT, 'assets', 'fonts', file), join(DIST_DIR, file));
   }
 
   const version = await readPlaywrightCoreVersion();

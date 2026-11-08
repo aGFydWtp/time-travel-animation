@@ -86,4 +86,30 @@ describe('calendar', () => {
     expect(formatDisplayDate(isoToOrdinal('1000-01-01'))).toBe('1000.01.01');
     expect(ordinalToIso(isoToOrdinal('9999-12-31'))).toBe('9999-12-31');
   });
+
+  it.each([
+    ['2026-03-06', '2026.03.06', '2026/03/06', '2026年03月06日'],
+    ['1000-01-01', '1000.01.01', '1000/01/01', '1000年01月01日'],
+    ['9999-12-31', '9999.12.31', '9999/12/31', '9999年12月31日'],
+    ['2024-02-29', '2024.02.29', '2024/02/29', '2024年02月29日'],
+    ['2000-02-29', '2000.02.29', '2000/02/29', '2000年02月29日'],
+    ['2023-03-01', '2023.03.01', '2023/03/01', '2023年03月01日'],
+  ])('formats %s in all three display formats (zero-padded)', (iso, dot, slash, kanji) => {
+    const o = isoToOrdinal(iso);
+    expect(formatDisplayDate(o)).toBe(dot);
+    expect(formatDisplayDate(o, 'YYYY.MM.DD')).toBe(dot);
+    expect(formatDisplayDate(o, 'YYYY/MM/DD')).toBe(slash);
+    expect(formatDisplayDate(o, 'YYYY年MM月DD日')).toBe(kanji);
+  });
+
+  it('leap day neighbours in kanji format', () => {
+    const leap = isoToOrdinal('2024-02-29');
+    expect(formatDisplayDate(leap - 1, 'YYYY年MM月DD日')).toBe('2024年02月28日');
+    expect(formatDisplayDate(leap + 1, 'YYYY年MM月DD日')).toBe('2024年03月01日');
+    expect(formatDisplayDate(isoToOrdinal('1900-02-28') + 1, 'YYYY/MM/DD')).toBe('1900/03/01');
+  });
+
+  it('rejects an unknown format', () => {
+    expect(() => formatDisplayDate(0, 'DD.MM.YYYY' as never)).toThrow(RangeError);
+  });
 });
