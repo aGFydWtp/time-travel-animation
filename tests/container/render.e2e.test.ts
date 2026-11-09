@@ -10,6 +10,7 @@ import { FONT_IDS, getDateAtFrame, getTotalFrames, parseRenderConfig, type Rende
 import {
   alphaStats,
   checkAlphaFrame,
+  checkMovBackground,
   checkMovProbe,
   checkMp4Backdrop,
   checkMp4Probe,
@@ -173,6 +174,45 @@ describe.skipIf(!HAS_DOCKER)('container renderer (docker)', () => {
     // The MOV stays transparent with black text.
     const rgba = await extractFrame(join(dir, 'transparent.mov'), 12, dark.width, dark.height, 'rgba', tools);
     expect(checkAlphaFrame(alphaStats(rgba, dark), dark).filter((c) => !c.ok)).toEqual([]);
+  });
+
+  test('green background: green MP4 and an opaque green ProRes 4444 MOV (no alpha), short render', async () => {
+    const green = parseRenderConfig({ ...config, background: '#00FF00', durationSeconds: 1 });
+    const cfgPath = join(OUT, 'green.json');
+    const dir = join(OUT, 'green');
+    await writeFile(cfgPath, JSON.stringify(green));
+    expect(await renderInDocker({ configPath: cfgPath, outDir: dir, image })).toBe(0);
+    const res = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+    expect(res.ok).toBe(true);
+    expect((res.verification.checks as { ok: boolean }[]).filter((c) => !c.ok)).toEqual([]);
+    const names = (res.verification.checks as { name: string }[]).map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['mov.background', 'mp4.background']));
+    expect(names.some((n) => n.startsWith('mov.alpha'))).toBe(false);
+    expect(res.verification.alpha).toBeNull();
+    const listing = spawnSync('ls', [dir], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean).sort();
+    expect(listing).toEqual(['preview.mp4', 'progress.json', 'result.json', 'transparent.mov']);
+
+    // Independent checks with host tools.
+    const movPath = join(dir, 'transparent.mov');
+    const movInfo = await probe(movPath, tools);
+    expect(movInfo).toMatchObject({ codec: 'prores', width: 1280, height: 720, fps: 24, frames: 24 });
+    expect(movInfo.profile).toMatch(/^4444/);
+    expect(movInfo.pixFmt).toMatch(/^yuv444p/); // no alpha plane
+    expect(checkMovProbe(movInfo, { width: 1280, height: 720, fps: 24, totalFrames: 24 }, true).filter((c) => !c.ok)).toEqual([]);
+    for (const [file, check] of [[movPath, checkMovBackground], [join(dir, 'preview.mp4'), checkMp4Backdrop]] as const) {
+      const rgb = await extractFrame(file, 12, green.width, green.height, 'rgb24', tools);
+      expect(check(rgb, green), file).toMatchObject({ ok: true });
+      // The corner pixel really is green, and the text is still drawn on top (white pixels exist).
+      expect(Math.max(rgb[0]!, rgb[2]!)).toBeLessThanOrEqual(6);
+      expect(rgb[1]).toBeGreaterThanOrEqual(249);
+      let white = 0;
+      for (let i = 0; i < rgb.length; i += 3) if (rgb[i]! > 240 && rgb[i + 1]! > 240 && rgb[i + 2]! > 240) white++;
+      expect(white).toBeGreaterThan(1000);
+    }
+    // Decoded with an alpha channel, the opaque MOV is alpha 255 everywhere.
+    const rgba = await extractFrame(movPath, 12, green.width, green.height, 'rgba', tools);
+    expect(alphaStats(rgba, green).transparentFraction).toBe(0);
+    expect(alphaStats(rgba, green).cornerMaxAlpha).toBe(255);
   });
 
   test('invalid config fails with a sanitized error code and exit 2', async () => {

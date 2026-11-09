@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG } from '../../../src/lib/renderer/index.ts';
+import { canonicalConfigString, DEFAULT_CONFIG } from '../../../src/lib/renderer/index.ts';
 import { ApiError } from '../../../src/server/errors.ts';
 import {
   assetKeys,
@@ -32,6 +32,16 @@ function completed(over = {}) {
 }
 
 describe('toRenderJob', () => {
+  it('restores the transparent background omitted from the canonical configJson; keeps a solid one', () => {
+    expect(JSON.parse(completed().configJson)).not.toHaveProperty('background');
+    expect(toRenderJob(completed(), NOW).config.background).toBe('transparent');
+    const green = { ...DEFAULT_CONFIG, background: '#00FF00' as const };
+    const dto = toRenderJob(completed({ configJson: canonicalConfigString(green) }), NOW);
+    expect(dto.config).toEqual(green);
+    // a solid-background job still has both assets (an opaque MOV)
+    expect(dto.assets?.mov.format).toBe('mov');
+  });
+
   it('never exposes asset URLs before completion', () => {
     for (const status of ['queued', 'running', 'failed']) {
       const dto = toRenderJob(makeJob({ status, mp4Key: 'k', movKey: 'k2' }), NOW);

@@ -11,6 +11,7 @@
     summarizeStyle,
   } from '../ui/format.ts';
   import { isActiveJob } from '../ui/poll.ts';
+  import { isTransparentBackground } from '../renderer/schema.ts';
   import DownloadLinks from './DownloadLinks.svelte';
 
   interface Props {
@@ -77,7 +78,7 @@
   {#if !active}
     <div class="actions">
       {#if assets}
-        <DownloadLinks mov={assets.mov} />
+        <DownloadLinks mov={assets.mov} transparent={isTransparentBackground(job.config)} />
       {:else if job.status === 'failed'}
         <button type="button" class="btn-outline" onclick={() => onRetry(job)} disabled={retrying}>
           {retrying ? '書き出し中…' : 'もう一度書き出す'}

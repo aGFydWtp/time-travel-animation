@@ -3,7 +3,7 @@
 import { UsageLimit } from 'void/limits';
 import { getSandbox, SandboxLimitError } from 'void/sandbox';
 import { storage } from 'void/storage';
-import type { RenderConfig } from '../lib/renderer/index.ts';
+import { canonicalConfigString, type RenderConfig } from '../lib/renderer/index.ts';
 import { SANDBOX_INACTIVITY_TIMEOUT_MS } from './constants.ts';
 import { errorSummary, logEvent } from './log.ts';
 import {
@@ -128,8 +128,9 @@ export const sandboxBackend: RenderBackend = {
     const p = paths(jobId);
     const sandbox = await openSandbox(jobId);
     await sandbox.files.mkdir(p.outDir, { recursive: true });
-    // 設定は JSON ファイルとして渡す（シェル文字列に連結しない）
-    await sandbox.files.writeFile(p.cfgPath, JSON.stringify(config));
+    // 設定は JSON ファイルとして渡す（シェル文字列に連結しない）。
+    // 正規形（background が transparent ならキーを省く）で渡し、ロールアウト中の旧イメージでも透過は描画できるようにする
+    await sandbox.files.writeFile(p.cfgPath, canonicalConfigString(config));
     const out = await sandbox.run(['sh', '-c', LAUNCH_SCRIPT, 'render-launch', CONTAINER_ENTRY, p.cfgPath, p.outDir, p.logPath], {
       cwd: p.workDir,
       signal: AbortSignal.timeout(LAUNCH_TIMEOUT_MS),

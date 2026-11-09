@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalConfigString, hashConfig, normalizeConfig, renderConfigSchema } from './schema.ts';
-import { DEFAULT_CONFIG } from './types.ts';
+import {
+  canonicalConfigString,
+  compactConfig,
+  hashConfig,
+  isTransparentBackground,
+  normalizeConfig,
+  renderConfigSchema,
+} from './schema.ts';
+import { BACKGROUND_PRESETS, DEFAULT_CONFIG } from './types.ts';
 
 const base = { ...DEFAULT_CONFIG } as Record<string, unknown>;
 const withOverride = (o: Record<string, unknown>) => ({ ...base, ...o });
@@ -28,6 +35,9 @@ describe('renderConfigSchema', () => {
     ['legacy font id', { fontFamily: 'bundled-mono' }],
     ['serif font', { fontFamily: 'noto-serif-jp' }],
     ['digital font', { fontFamily: 'digital' }],
+    ['transparent background', { background: 'transparent' }],
+    ['green background', { background: '#00FF00' }],
+    ['custom lowercase background', { background: '#12abef' }],
   ])('accepts %s', (_name, o) => {
     expect(renderConfigSchema.safeParse(withOverride(o)).success).toBe(true);
   });
@@ -65,6 +75,11 @@ describe('renderConfigSchema', () => {
     ['unknown date format', { dateFormat: 'DD/MM/YYYY' }],
     ['date format null', { dateFormat: null }],
     ['font id is a family name', { fontFamily: 'DCS JetBrains Mono' }],
+    ['background name', { background: 'green' }],
+    ['background short hex', { background: '#0F0' }],
+    ['background alpha hex', { background: '#00FF0080' }],
+    ['background null', { background: null }],
+    ['background TRANSPARENT (case)', { background: 'Transparent' }],
   ])('rejects %s', (_name, o) => {
     expect(renderConfigSchema.safeParse(withOverride(o)).success).toBe(false);
   });
@@ -113,7 +128,8 @@ describe('normalizeConfig / canonicalConfigString / hashConfig', () => {
     const a = canonicalConfigString(base);
     const b = canonicalConfigString({ ...reversed, color: '#ffffff' });
     expect(a).toBe(b);
-    expect(Object.keys(JSON.parse(a))).toEqual(Object.keys(base).sort());
+    // every key except the default (transparent) background, which is omitted
+    expect(Object.keys(JSON.parse(a))).toEqual(Object.keys(base).filter((k) => k !== 'background').sort());
   });
 
   it('canonicalConfigString throws on invalid config', () => {
@@ -127,5 +143,61 @@ describe('normalizeConfig / canonicalConfigString / hashConfig', () => {
     expect(h1).toMatch(/^[0-9a-f]{64}$/);
     expect(h2).toBe(h1);
     expect(h3).not.toBe(h1);
+  });
+});
+
+describe('background', () => {
+  const { background: _b, ...legacy } = base;
+  /** Canonical string / hash of DEFAULT_CONFIG as computed BEFORE the background option existed. */
+  const PRE_BACKGROUND_CANONICAL =
+    '{"color":"#FFFFFF","dateFormat":"YYYY/MM/DD","durationSeconds":10,"easing":"smootherstep","endDate":"2020-01-01",' +
+    '"fontFamily":"bundled-mono","fontSize":96,"fps":30,"height":1080,"startDate":"2026-03-06","width":1920,"x":0.5,"y":0.5}';
+  const PRE_BACKGROUND_HASH = '34a2d15fc8f6ada1a8d822e73eb4e0d354d7f4e0e41466ccc511194fe9b3195f';
+
+  it('new edits default to transparent; a config without background (old job / old client) parses as transparent', () => {
+    expect(DEFAULT_CONFIG.background).toBe('transparent');
+    expect(renderConfigSchema.parse(legacy).background).toBe('transparent');
+    expect(renderConfigSchema.parse(legacy)).toEqual(DEFAULT_CONFIG);
+  });
+
+  it('upper-cases a hex background like color', () => {
+    expect(normalizeConfig(withOverride({ background: '#00ff00' })).background).toBe('#00FF00');
+  });
+
+  it('exports the 黒 / 白 / グリーン presets', () => {
+    expect(BACKGROUND_PRESETS.map((p) => [p.label, p.hex])).toEqual([
+      ['黒', '#000000'],
+      ['白', '#FFFFFF'],
+      ['グリーン', '#00FF00'],
+    ]);
+  });
+
+  it('hash stability: transparent is omitted, so pre-existing configs keep their exact canonical string and hash', async () => {
+    const withTransparent = withOverride({ background: 'transparent' });
+    expect(canonicalConfigString(legacy)).toBe(PRE_BACKGROUND_CANONICAL);
+    expect(canonicalConfigString(withTransparent)).toBe(PRE_BACKGROUND_CANONICAL);
+    expect(canonicalConfigString(withTransparent)).not.toContain('background');
+    expect(await hashConfig(legacy)).toBe(PRE_BACKGROUND_HASH);
+    expect(await hashConfig(withTransparent)).toBe(PRE_BACKGROUND_HASH);
+  });
+
+  it('a solid background is part of the canonical string and changes the hash', async () => {
+    const green = withOverride({ background: '#00ff00' });
+    expect(JSON.parse(canonicalConfigString(green)).background).toBe('#00FF00');
+    expect(canonicalConfigString(green)).toBe(canonicalConfigString(withOverride({ background: '#00FF00' })));
+    const hashes = await Promise.all(['transparent', '#000000', '#FFFFFF', '#00FF00'].map((b) => hashConfig(withOverride({ background: b }))));
+    expect(new Set(hashes).size).toBe(4);
+  });
+
+  it('compactConfig drops only a transparent background and still parses back to the full config', () => {
+    expect(compactConfig(base)).not.toHaveProperty('background');
+    expect(renderConfigSchema.parse(compactConfig(base))).toEqual(DEFAULT_CONFIG);
+    expect(compactConfig(withOverride({ background: '#000000' }))).toHaveProperty('background', '#000000');
+  });
+
+  it('isTransparentBackground treats a missing background as transparent', () => {
+    expect(isTransparentBackground({})).toBe(true);
+    expect(isTransparentBackground({ background: 'transparent' })).toBe(true);
+    expect(isTransparentBackground({ background: '#00FF00' })).toBe(false);
   });
 });

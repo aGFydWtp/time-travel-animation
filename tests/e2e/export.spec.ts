@@ -1,7 +1,7 @@
 // Export from the editor (/): inline status line for the job just started.
 import { expect, test } from '@playwright/test';
 import { DEFAULT_CONFIG } from '../../src/lib/renderer/types.ts';
-import { completed, failed, makeJob, mockApi, openEditor, running } from './fixtures.ts';
+import { completed, failed, makeJob, mockApi, openAdvanced, openEditor, running } from './fixtures.ts';
 
 test('the 書き出す button carries the export state: queued → running → completed → re-export', async ({ page }) => {
   const queued = makeJob({ id: 'job-new' });
@@ -232,4 +232,25 @@ test('repeated polling failures show a connection note that clears on recovery',
   failing = false;
   await nextPoll();
   await expect(page.getByTestId('connection-lost')).toHaveCount(0);
+});
+
+test('a green-background export posts the background and offers the opaque MOV download', async ({ page }) => {
+  const green = { ...DEFAULT_CONFIG, background: '#00FF00' as const };
+  const queued = makeJob({ id: 'job-green', config: green });
+  const api = await mockApi(page, {
+    onCreate: () => ({ status: 202, body: { id: 'job-green', status: 'queued', reused: false } }),
+    timelines: { 'job-green': [running(queued, 50), completed(queued)] },
+  });
+  await openEditor(page);
+  await openAdvanced(page);
+  await page.getByLabel('背景', { exact: true }).selectOption({ label: 'グリーン' });
+  await page.getByTestId('export-button').click();
+  await expect.poll(() => api.requests.find((r) => r.method === 'POST')?.body).toBeTruthy();
+  const post = api.requests.find((r) => r.method === 'POST');
+  expect((post?.body as { config: unknown }).config).toEqual(green);
+
+  const result = page.getByTestId('export-result');
+  await expect(result.getByTestId('download-mov')).toHaveText('MOVをダウンロード 362 MB', { timeout: 20_000 });
+  await expect(result.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-green/assets/mov?download=1');
+  await expect(result.locator('a[href*="/assets/mp4"]')).toHaveCount(0);
 });

@@ -7,7 +7,7 @@ import type {
   RenderAssetInfo,
   RenderJob,
 } from '../lib/api/types.ts';
-import type { RenderConfig } from '../lib/renderer/index.ts';
+import { DEFAULT_BACKGROUND, type RenderConfig } from '../lib/renderer/index.ts';
 
 /** render_jobs 行の構造的な型（Drizzle の推論型と互換） */
 export interface JobRow {
@@ -183,7 +183,8 @@ export function toRenderJob(row: JobRow, now: Date): RenderJob {
     stage: isJobStage(row.stage) ? row.stage : null,
     progress: Math.max(0, Math.min(100, Math.round(row.progress))),
     attempt: row.attempt,
-    config: JSON.parse(row.configJson) as RenderConfig,
+    // configJson is canonical: a transparent background is omitted (keeps old hashes), so restore it here.
+    config: { background: DEFAULT_BACKGROUND, ...(JSON.parse(row.configJson) as Partial<RenderConfig>) } as RenderConfig,
     configHash: row.configHash,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

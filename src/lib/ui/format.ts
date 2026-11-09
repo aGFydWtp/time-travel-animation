@@ -2,7 +2,14 @@
 import type { JobStage, JobStatus } from '../api/types.ts';
 import { formatDisplayDate, isoToOrdinal } from '../renderer/calendar.ts';
 import { FONTS, isFontId } from '../renderer/fonts.ts';
-import { LEGACY_DATE_FORMAT, type DateFormat, type Easing, type RenderConfig } from '../renderer/types.ts';
+import {
+  BACKGROUND_PRESETS,
+  DEFAULT_BACKGROUND,
+  LEGACY_DATE_FORMAT,
+  type DateFormat,
+  type Easing,
+  type RenderConfig,
+} from '../renderer/types.ts';
 
 /** 速度曲線 labels, used by the select and every summary. */
 export const EASING_LABELS: Record<Easing, string> = {
@@ -35,7 +42,15 @@ export function summarizeOutput(config: RenderConfig): string {
   );
 }
 
-/** Secondary details: font, size, colour, position. */
+/** 背景 label: 透過 / 黒 / 白 / グリーン / #RRGGBB. Jobs from before the option were transparent. */
+export function backgroundLabel(background: string | undefined): string {
+  const bg = background ?? DEFAULT_BACKGROUND;
+  if (bg === 'transparent') return '透過';
+  const hex = bg.toUpperCase();
+  return BACKGROUND_PRESETS.find((p) => p.hex === hex)?.label ?? hex;
+}
+
+/** Secondary details: font, size, colour, position, background. */
 export function summarizeStyle(config: RenderConfig): string {
   const font = isFontId(config.fontFamily) ? FONTS[config.fontFamily].label : config.fontFamily;
   return [
@@ -43,6 +58,7 @@ export function summarizeStyle(config: RenderConfig): string {
     `${config.fontSize}px`,
     config.color.toUpperCase(),
     `位置 ${config.x.toFixed(2)}, ${config.y.toFixed(2)}`,
+    `背景 ${backgroundLabel(config.background)}`,
   ].join(' · ');
 }
 

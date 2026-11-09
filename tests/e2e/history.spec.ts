@@ -109,6 +109,44 @@ test('この設定をエディターで開く opens the editor with that job’s
   await expect(page.getByLabel('終了日')).toHaveValue('2023/07/01');
 });
 
+test('a solid-background job downloads its (opaque) MOV, mentions the background, and loads it into the editor', async ({ page }) => {
+  const config = { ...DEFAULT_CONFIG, background: '#00FF00' as const };
+  const custom = { ...DEFAULT_CONFIG, background: '#12ABEF' as const };
+  await mockApi(page, {
+    list: [
+      completed(makeJob({ id: 'job-green', config, configHash: 'green-hash' })),
+      completed(makeJob({ id: 'job-custom', config: custom, configHash: 'custom-hash', createdAt: '2026-11-08T02:00:00.000Z' })),
+      completed(makeJob({ id: 'job-clear', createdAt: '2026-11-08T01:00:00.000Z' })),
+    ],
+  });
+  await openHistory(page);
+  const green = page.locator('[data-job-id="job-green"]');
+  await expect(green.getByTestId('download-mov')).toHaveText('MOVをダウンロード 362 MB');
+  await expect(green.getByTestId('download-mov')).toHaveAttribute('href', '/api/renders/job-green/assets/mov?download=1');
+  await expect(green.getByTestId('download-mov')).toHaveAttribute('download', '');
+  await expect(page.locator('[data-job-id="job-clear"]').getByTestId('download-mov')).toHaveText('透過MOVをダウンロード 362 MB');
+  await expect(page.locator('a[href*="/assets/mp4"]')).toHaveCount(0);
+
+  // 再生して確認 still plays the MP4; the settings line names the background.
+  await green.getByRole('button', { name: '再生して確認' }).click();
+  await expect(green.getByTestId('job-video')).toHaveAttribute('src', '/api/renders/job-green/assets/mp4');
+  await expect(green.getByTestId('job-details')).toContainText('背景 グリーン');
+  const clear = page.locator('[data-job-id="job-clear"]');
+  await clear.getByRole('button', { name: '再生して確認' }).click();
+  await expect(clear.getByTestId('job-details')).toContainText('背景 透過');
+  const customRow = page.locator('[data-job-id="job-custom"]');
+  await customRow.getByRole('button', { name: '再生して確認' }).click();
+  await expect(customRow.getByTestId('job-details')).toContainText('背景 #12ABEF');
+
+  // ?from= round trip carries the background (custom colour too).
+  await customRow.getByRole('link', { name: 'この設定をエディターで開く' }).click();
+  await expect(page).toHaveURL(/\/\?from=job-custom$/);
+  await page.getByTestId('advanced-settings').locator('summary').click();
+  await expect(page.getByLabel('背景', { exact: true })).toHaveValue('custom');
+  await expect(page.locator('#backgroundHex')).toHaveValue('#12ABEF');
+  await expect(page.getByTestId('preview-stage')).toHaveAttribute('data-backdrop', '#12ABEF');
+});
+
 test('expired job shows 期限切れ and no downloads', async ({ page }) => {
   const old = {
     ...completed(makeJob({ id: 'job-old', createdAt: '2026-10-01T00:00:00.000Z' })),

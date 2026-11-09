@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { RenderJob } from '../api/types.ts';
+  import { isTransparentBackground } from '../renderer/schema.ts';
   import DownloadLinks from './DownloadLinks.svelte';
 
   interface Props {
@@ -20,7 +21,7 @@
   {:else}
     <p class="muted">{stale ? '前回の書き出し' : '書き出しが完了しました'}</p>
     {#if assets}
-      <DownloadLinks mov={assets.mov} />
+      <DownloadLinks mov={assets.mov} transparent={isTransparentBackground(job.config)} />
     {/if}
   {/if}
 </div>

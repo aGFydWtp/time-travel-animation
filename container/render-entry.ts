@@ -1,5 +1,7 @@
 // Container entry: config JSON -> transparent PNG frames (headless Chromium + shared renderer)
-// -> preview.mp4 (H.264 over a black or white backdrop) + transparent.mov (ProRes 4444) -> verify -> result.json.
+// -> preview.mp4 (H.264) + transparent.mov (ProRes 4444) -> verify -> result.json.
+// background 'transparent': MOV with alpha, MP4 over the automatic black/white backdrop.
+// background #RRGGBB: MP4 and an opaque MOV (no alpha plane) both composited over that colour.
 //
 //   node /app/render-entry.mjs --config <config.json> --out <dir> [--work <dir>] [--stills 0,47]
 //
@@ -11,7 +13,13 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright-core';
-import { backdropFor, getTotalFrames, parseRenderConfig, type RenderConfig } from '../src/lib/renderer/index.ts';
+import {
+  getTotalFrames,
+  isTransparentBackground,
+  parseRenderConfig,
+  stageColor,
+  type RenderConfig,
+} from '../src/lib/renderer/index.ts';
 import { run } from './proc.ts';
 import { alphaStats, checkAlphaFrame, extractFrame, verifyOutputs, type VerifyReport } from './verify-output.ts';
 
@@ -210,17 +218,25 @@ async function renderFrames(
 
 const COLOR_TAGS = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv'];
 
-export function mp4Args(framesDir: string, config: RenderConfig, totalFrames: number, outFile: string): string[] {
+/** lavfi source of the opaque colour the frames are composited over (MP4; MOV for a solid background). */
+function colorSource(config: RenderConfig): string[] {
   const { width, height, fps } = config;
-  // Black or white, whichever contrasts with the text (same rule as the preview's CSS background).
-  const backdrop = backdropFor(config.color).replace('#', '0x');
+  return ['-f', 'lavfi', '-i', `color=c=${stageColor(config).replace('#', '0x')}:s=${width}x${height}:r=${fps}`];
+}
+
+/** Straight-alpha PNG over the opaque colour, blended in RGB, then BT.709 limited range in `pixFmt`. */
+const overlayGraph = (pixFmt: string) =>
+  `[0:v][1:v]overlay=shortest=1:format=rgb,scale=out_color_matrix=bt709:out_range=tv,format=${pixFmt}[v]`;
+
+export function mp4Args(framesDir: string, config: RenderConfig, totalFrames: number, outFile: string): string[] {
+  const { fps } = config;
   return [
     '-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
-    '-f', 'lavfi', '-i', `color=c=${backdrop}:s=${width}x${height}:r=${fps}`,
+    // The chosen background, or black/white by text contrast for a transparent render
+    // (same rule as the preview's CSS background).
+    ...colorSource(config),
     '-framerate', String(fps), '-start_number', '0', '-i', join(framesDir, FRAME_PATTERN),
-    // Straight-alpha PNG over the opaque backdrop, blended in RGB, then BT.709 limited-range 4:2:0.
-    '-filter_complex',
-    '[0:v][1:v]overlay=shortest=1:format=rgb,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]',
+    '-filter_complex', overlayGraph('yuv420p'),
     '-map', '[v]',
     '-frames:v', String(totalFrames),
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
@@ -235,18 +251,36 @@ export function mp4Args(framesDir: string, config: RenderConfig, totalFrames: nu
 
 export function movArgs(framesDir: string, config: RenderConfig, totalFrames: number, outFile: string): string[] {
   const { fps } = config;
-  return [
-    '-hide_banner', '-nostdin', '-y', '-loglevel', 'error',
-    '-framerate', String(fps), '-start_number', '0', '-i', join(framesDir, FRAME_PATTERN),
-    '-vf', 'scale=out_color_matrix=bt709:out_range=tv,format=yuva444p10le',
+  const head = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error'];
+  const frames = ['-framerate', String(fps), '-start_number', '0', '-i', join(framesDir, FRAME_PATTERN)];
+  const tail = [
     '-frames:v', String(totalFrames),
-    '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16',
-    '-vendor', 'apl0',
     '-r', String(fps),
     ...COLOR_TAGS,
     '-an',
     '-progress', 'pipe:1', '-nostats',
     outFile,
+  ];
+  if (isTransparentBackground(config)) {
+    return [
+      ...head,
+      ...frames,
+      '-vf', 'scale=out_color_matrix=bt709:out_range=tv,format=yuva444p10le',
+      '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16',
+      '-vendor', 'apl0',
+      ...tail,
+    ];
+  }
+  // Solid background: same ProRes 4444 (4:4:4 chroma keeps chroma-key edges clean), fully opaque.
+  return [
+    ...head,
+    ...colorSource(config),
+    ...frames,
+    '-filter_complex', overlayGraph('yuv444p10le'),
+    '-map', '[v]',
+    '-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuv444p10le',
+    '-vendor', 'apl0',
+    ...tail,
   ];
 }
 
@@ -334,7 +368,8 @@ async function main(): Promise<void> {
     }
 
     // Alpha proof on the intermediate: decode frame 0 PNG and require a transparent background
-    // and opaque text before spending time on encoding.
+    // and opaque text before spending time on encoding (frames are transparent for every
+    // background; the colour is composited by ffmpeg).
     const pngAlpha = await stage('FRAME_RENDER_FAILED', async () => {
       const rgba = await extractFrame(frameFile(framesDir, 0), 0, config.width, config.height, 'rgba');
       const stats = alphaStats(rgba, config);

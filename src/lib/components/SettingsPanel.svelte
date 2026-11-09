@@ -1,9 +1,19 @@
 <script lang="ts">
   import { CONFIG_LIMITS, EASINGS, FPS_OPTIONS, type DateFormat } from '../renderer/types.ts';
   import { FONTS, FONT_IDS } from '../renderer/fonts.ts';
-  import { RESOLUTION_OPTIONS, normalizeHex, type EditorForm, type FormField } from '../ui/editor-form.ts';
+  import {
+    BACKGROUND_CHOICES,
+    DEFAULT_CUSTOM_BACKGROUND,
+    RESOLUTION_OPTIONS,
+    backgroundChoice,
+    backgroundValue,
+    type BackgroundChoice,
+    type EditorForm,
+    type FormField,
+  } from '../ui/editor-form.ts';
   import { EASING_LABELS } from '../ui/format.ts';
   import { rangeFill } from '../ui/range.ts';
+  import ColorField from './ColorField.svelte';
   import DateField from './DateField.svelte';
 
   interface Props {
@@ -20,17 +30,17 @@
     { value: 'YYYY年MM月DD日', label: '2026年03月06日' },
   ];
 
+  // 背景: the selected choice follows the value (a preset's hex selects that preset).
+  const bgChoice = $derived(backgroundChoice(form.background));
+  // Last 好きな色, restored when switching back to it from another choice (also picks up a ?from= load).
+  let lastCustomBackground = $state(DEFAULT_CUSTOM_BACKGROUND);
+  $effect(() => {
+    if (bgChoice === 'custom') lastCustomBackground = form.background;
+  });
 
-  // The colour picker only understands lowercase #rrggbb; fall back while the hex field is mid-edit.
-  const pickerValue = $derived(normalizeHex(form.color)?.toLowerCase() ?? '#ffffff');
-
-  function onPick(event: Event) {
-    form.color = (event.currentTarget as HTMLInputElement).value.toUpperCase();
-  }
-
-  function onHexBlur() {
-    const normalized = normalizeHex(form.color);
-    if (normalized) form.color = normalized;
+  function onBackgroundChoice(event: Event) {
+    const choice = (event.currentTarget as HTMLSelectElement).value as BackgroundChoice;
+    form.background = backgroundValue(choice, lastCustomBackground);
   }
 
   function onFontSizeRange(event: Event) {
@@ -169,28 +179,14 @@
       </div>
       <div class="field">
         <label for="colorHex">文字色</label>
-        <div class="color-row">
-          <input
-            id="colorPicker"
-            class="swatch"
-            type="color"
-            value={pickerValue}
-            oninput={onPick}
-            aria-label="文字色（カラーピッカー）"
-          />
-          <input
-            id="colorHex"
-            class="mono"
-            type="text"
-            maxlength="7"
-            spellcheck="false"
-            autocomplete="off"
-            bind:value={form.color}
-            onblur={onHexBlur}
-            aria-invalid={!!err('color')}
-            aria-describedby={describedBy('color')}
-          />
-        </div>
+        <ColorField
+          bind:value={form.color}
+          id="colorHex"
+          pickerId="colorPicker"
+          pickerLabel="文字色（カラーピッカー）"
+          invalid={!!err('color')}
+          describedBy={describedBy('color')}
+        />
         {#if err('color')}<p class="error" id="err-color">{err('color')}</p>{/if}
       </div>
       <div class="field font-size">
@@ -256,6 +252,36 @@
           aria-describedby={describedBy('y')}
         />
         {#if err('y')}<p class="error" id="err-y">{err('y')}</p>{/if}
+      </div>
+
+      <div class="field background">
+        <label for="background">背景</label>
+        <div class="background-row">
+          <select
+            id="background"
+            value={bgChoice}
+            onchange={onBackgroundChoice}
+            aria-describedby={['background-hint', describedBy('background')].filter(Boolean).join(' ')}
+            data-choice={bgChoice}
+          >
+            {#each BACKGROUND_CHOICES as option (option.value)}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+          {#if bgChoice === 'custom'}
+            <ColorField
+              bind:value={form.background}
+              id="backgroundHex"
+              pickerId="backgroundPicker"
+              pickerLabel="背景色（カラーピッカー）"
+              invalid={!!err('background')}
+              describedBy={describedBy('background')}
+              fallback="#0000ff"
+            />
+          {/if}
+        </div>
+        {#if err('background')}<p class="error" id="err-background">{err('background')}</p>{/if}
+        <p class="hint" id="background-hint">CapCut など透過 MOV を読めないアプリでは、グリーンにしてクロマキーで抜いてください。</p>
       </div>
     </div>
   </details>
@@ -374,30 +400,33 @@
     pointer-events: none;
   }
 
-  .color-row,
   .slider-row {
     display: flex;
     gap: 8px;
     align-items: center;
   }
 
-  .color-row #colorHex {
-    flex: 1;
-    min-width: 0;
-    text-transform: uppercase;
+  .hint {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* 背景 spans the row: the choice (one column wide) and, for 好きな色, its colour field beside it. */
+  .background {
+    grid-column: 1 / -1;
+  }
+
+  .background-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    align-items: center;
   }
 
   .slider-row input[type='range'] {
     flex: 1;
     min-width: 0;
-  }
-
-  .swatch {
-    width: 40px;
-    height: 36px;
-    padding: 2px;
-    flex: none;
-    cursor: pointer;
   }
 
   @media (max-width: 640px) {
@@ -411,6 +440,10 @@
 
     .font-size {
       grid-column: 1 / -1;
+    }
+
+    .background-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>

@@ -4,14 +4,16 @@
 
   interface Props {
     mov: RenderAssetInfo;
+    /** Transparent background → alpha MOV; otherwise an opaque MOV over the chosen colour. */
+    transparent: boolean;
   }
 
   // Only the MOV is downloadable; the MP4 is for in-app playback (再生して確認).
-  let { mov }: Props = $props();
+  let { mov, transparent }: Props = $props();
 </script>
 
 <a class="btn-outline" href={mov.downloadUrl} download data-testid="download-mov">
-  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10" /></svg>透過MOVをダウンロード <span class="size">{formatBytes(mov.bytes)}</span>
+  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10" /></svg>{transparent ? '透過MOVをダウンロード' : 'MOVをダウンロード'} <span class="size">{formatBytes(mov.bytes)}</span>
 </a>
 
 <style>

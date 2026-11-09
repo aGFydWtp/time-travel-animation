@@ -1,5 +1,5 @@
 // Editor form state <-> RenderConfig, and mapping of validation issues to fields.
-import { DEFAULT_CONFIG, RESOLUTIONS, type RenderConfig } from '../renderer/types.ts';
+import { BACKGROUND_PRESETS, DEFAULT_BACKGROUND, DEFAULT_CONFIG, RESOLUTIONS, type RenderConfig } from '../renderer/types.ts';
 
 export type ResolutionKey = `${number}x${number}`;
 
@@ -15,6 +15,8 @@ export interface EditorForm {
   fontFamily: string;
   fontSize: number | null;
   color: string;
+  /** 'transparent' or a #RRGGBB being typed (presets are just their hex). */
+  background: string;
   x: number;
   y: number;
 }
@@ -38,6 +40,7 @@ export function formFromConfig(config: Readonly<RenderConfig>): EditorForm {
     fontFamily: config.fontFamily,
     fontSize: config.fontSize,
     color: config.color,
+    background: config.background ?? DEFAULT_BACKGROUND,
     x: config.x,
     y: config.y,
   };
@@ -62,6 +65,7 @@ export function formToConfigInput(form: EditorForm): Record<string, unknown> {
     fontFamily: form.fontFamily,
     fontSize: form.fontSize ?? Number.NaN,
     color: form.color.trim(),
+    background: form.background.trim(),
     x: Number(form.x),
     y: Number(form.y),
   };
@@ -79,6 +83,7 @@ export const FIELD_MESSAGES: Record<FormField, string> = {
   fontFamily: '同梱フォントから選んでください',
   fontSize: '24〜240 の整数で入力してください',
   color: '#RRGGBB 形式（例: #FFFFFF）で入力してください',
+  background: '#RRGGBB 形式（例: #00FF00）で入力してください',
   x: '0〜1 の範囲で指定してください',
   y: '0〜1 の範囲で指定してください',
 };
@@ -107,4 +112,32 @@ export function normalizeHex(value: string): string | null {
   const v = value.trim();
   const withHash = v.startsWith('#') ? v : `#${v}`;
   return /^#[0-9A-Fa-f]{6}$/.test(withHash) ? withHash.toUpperCase() : null;
+}
+
+// ---- 背景 ---------------------------------------------------------------
+
+export type BackgroundChoice = 'transparent' | (typeof BACKGROUND_PRESETS)[number]['key'] | 'custom';
+
+/** The five choices of the 背景 control, in display order. */
+export const BACKGROUND_CHOICES: readonly { value: BackgroundChoice; label: string }[] = [
+  { value: 'transparent', label: '透過（MOV）' },
+  ...BACKGROUND_PRESETS.map((p) => ({ value: p.key, label: p.label })),
+  { value: 'custom', label: '好きな色' },
+];
+
+/** Starting colour for 好きな色 until the user picks one (not a preset, so the choice stays 好きな色). */
+export const DEFAULT_CUSTOM_BACKGROUND = '#0000FF';
+
+/** Which choice a background value shows: a preset's hex selects that preset; any other value is 好きな色. */
+export function backgroundChoice(value: string): BackgroundChoice {
+  if (value.trim() === 'transparent') return 'transparent';
+  const hex = normalizeHex(value);
+  return BACKGROUND_PRESETS.find((p) => p.hex === hex)?.key ?? 'custom';
+}
+
+/** The value a choice sets; 好きな色 restores the last custom colour. */
+export function backgroundValue(choice: BackgroundChoice, lastCustom: string): string {
+  if (choice === 'transparent') return 'transparent';
+  if (choice === 'custom') return lastCustom;
+  return BACKGROUND_PRESETS.find((p) => p.key === choice)?.hex ?? lastCustom;
 }

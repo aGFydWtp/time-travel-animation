@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { isValidIsoDate } from './calendar.ts';
 import { isFontId } from './fonts.ts';
-import { CONFIG_LIMITS, DATE_FORMATS, EASINGS, LEGACY_DATE_FORMAT, RESOLUTIONS, type RenderConfig } from './types.ts';
+import {
+  CONFIG_LIMITS,
+  DATE_FORMATS,
+  DEFAULT_BACKGROUND,
+  EASINGS,
+  LEGACY_DATE_FORMAT,
+  RESOLUTIONS,
+  type Background,
+  type RenderConfig,
+} from './types.ts';
 
 const DURATION_STEP_TOLERANCE = 1e-6;
 
@@ -9,6 +18,12 @@ function isTenthMultiple(value: number): boolean {
   const scaled = value * 10;
   return Math.abs(scaled - Math.round(scaled)) < DURATION_STEP_TOLERANCE;
 }
+
+const hexColor = (message: string) =>
+  z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, { message })
+    .transform((c) => c.toUpperCase() as `#${string}`);
 
 const isoDate = z.string().refine(isValidIsoDate, {
   message: 'Invalid date: expected an existing YYYY-MM-DD date between 1000 and 9999',
@@ -32,10 +47,12 @@ export const renderConfigSchema = z
     dateFormat: z.enum(DATE_FORMATS).default(LEGACY_DATE_FORMAT),
     fontFamily: z.string().refine(isFontId, { message: 'Unknown font' }),
     fontSize: z.number().int().min(CONFIG_LIMITS.fontSize.min).max(CONFIG_LIMITS.fontSize.max),
-    color: z
-      .string()
-      .regex(/^#[0-9A-Fa-f]{6}$/, { message: 'color must be #RRGGBB' })
-      .transform((c) => c.toUpperCase()),
+    color: hexColor('color must be #RRGGBB'),
+    // Optional on input for back-compat (old stored jobs / old clients were transparent). Unlike
+    // dateFormat, 'transparent' is left OUT of the canonical string so existing hashes don't change.
+    background: z
+      .union([z.literal('transparent'), hexColor("background must be 'transparent' or #RRGGBB")])
+      .default(DEFAULT_BACKGROUND),
     x: z.number().min(CONFIG_LIMITS.position.min).max(CONFIG_LIMITS.position.max),
     y: z.number().min(CONFIG_LIMITS.position.min).max(CONFIG_LIMITS.position.max),
   })
@@ -72,12 +89,29 @@ export function normalizeConfig(config: unknown): RenderConfig {
   return renderConfigSchema.parse(config);
 }
 
-/** Deterministic JSON of the normalized config with keys sorted alphabetically. */
-export function canonicalConfigString(config: unknown): string {
+/** True for the transparent (alpha MOV) background; also for configs stored before the option existed. */
+export function isTransparentBackground(config: { background?: Background | undefined }): boolean {
+  return (config.background ?? DEFAULT_BACKGROUND) === 'transparent';
+}
+
+/**
+ * The normalized config with keys sorted alphabetically, WITHOUT `background` when it is
+ * 'transparent' (the default), so configs from before the option keep their exact canonical
+ * string and hash. Also the form handed to the render container (an older image accepts it).
+ */
+export function compactConfig(config: unknown): Record<string, unknown> {
   const normalized = normalizeConfig(config) as unknown as Record<string, unknown>;
   const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(normalized).sort()) sorted[key] = normalized[key];
-  return JSON.stringify(sorted);
+  for (const key of Object.keys(normalized).sort()) {
+    if (key === 'background' && normalized[key] === DEFAULT_BACKGROUND) continue;
+    sorted[key] = normalized[key];
+  }
+  return sorted;
+}
+
+/** Deterministic JSON of compactConfig(config). */
+export function canonicalConfigString(config: unknown): string {
+  return JSON.stringify(compactConfig(config));
 }
 
 /** SHA-256 (lowercase hex) of canonicalConfigString(config). Uses Web Crypto. */

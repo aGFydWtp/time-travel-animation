@@ -29,8 +29,9 @@ Void API 調査: `claudedocs/void-research.md`（void@1.6.2 / @void/svelte 1.6.2
   Node + playwright-core + Chromium（Debian パッケージ or Playwright 同梱）+ ffmpeg/ffprobe + フォント + `container/dist`。
 - エントリ: `node /app/render-entry.js --config /work/<job>/config.json --out /work/<job>/out`
   - Chromium で render-page.html を開き `document.fonts.ready` を待つ → `page.evaluate` でフレーム毎に `renderFrame` → 透過 PNG を 1 枚ずつディスクへ（`frame_%05d.png`）。
-  - ffmpeg（引数配列）: MP4 = H.264 yuv420p, 文字色に応じて黒か白の背景に合成（`backdropFor(color)`。白文字なら黒、黒文字なら白）, `+faststart` / MOV = `prores_ks -profile:v 4 -pix_fmt yuva444p10le`。
-  - verify-output: ffprobe（尺・fps・サイズ・codec・pix_fmt）＋ MOV の代表フレームを RGBA デコードして alpha=0 背景 / alpha>0 文字を確認。
+  - ffmpeg（引数配列）: MP4 = H.264 yuv420p, `stageColor(config)` の色に合成（`background` が `'transparent'` なら `backdropFor(color)`：白文字なら黒、黒文字なら白。`#RRGGBB` ならその色）, `+faststart` / MOV = `prores_ks -profile:v 4`。透過は `-pix_fmt yuva444p10le -alpha_bits 16`、色付きは MP4 と同じ色に合成した不透明の `yuv444p10le`（アルファなし。4:4:4 でクロマキーの縁がきれい）。
+  - verify-output: ffprobe（尺・fps・サイズ・codec・pix_fmt）。透過は MOV の代表フレームを RGBA デコードして alpha=0 背景 / alpha>0 文字を確認。色付きは MOV の pix_fmt にアルファが無いことと、MOV・MP4 の四隅が選んだ色（チャンネル毎 ±6。`#00FF00` の実測は (0,255,1)）であることを確認。
+  - `background` が `'transparent'` のときは正規形（ハッシュ・`config_json`・コンテナに渡す設定）からキーを省き、既存ジョブのハッシュを保つ。
   - 結果を `out/result.json`（ファイルサイズ、検証結果）に書き、進捗は `out/progress.json`。
   - PNG 中間ファイルは終了時に削除。
 - ローカル CLI: `pnpm render:local <config.json> <outDir>` が同じイメージを `docker run` して短い動画を作る（Phase 2 受け入れ）。
@@ -54,7 +55,7 @@ Void API 調査: `claudedocs/void-research.md`（void@1.6.2 / @void/svelte 1.6.2
 ## UI
 
 - `pages/index.svelte` 1 画面（エディター + 書き出し履歴）。デスクトップ 2 カラム / モバイル縦。
-- プレビュー Canvas の内部解像度 = 出力解像度。背景（文字色に応じて黒か白、`backdropFor`）は CSS 背景のみ。
+- プレビュー Canvas の内部解像度 = 出力解像度。背景（選んだ背景色。透過なら文字色に応じて黒か白、`stageColor`）は CSS 背景のみ。
 - 再生は `performance.now()` から経過時間 → `frame = floor(t * fps)`（描画間引きでも時間ベース）。
 - ジョブのポーリング 2 秒、指数バックオフ（最大 10 秒）。
 - 完了ジョブの設定ハッシュが現在の設定と違えば「現在の設定とは異なる」と表示。

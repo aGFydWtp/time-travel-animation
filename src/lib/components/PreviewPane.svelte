@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { backdropFor } from '../renderer/backdrop.ts';
+  import { stageColor } from '../renderer/backdrop.ts';
   import { loadFont } from '../renderer/fonts.ts';
   import { clampFrameIndex, getDateAtFrame, getTotalFrames } from '../renderer/frames.ts';
   import { renderFrame } from '../renderer/render-frame.ts';
@@ -38,8 +38,11 @@
   const totalFrames = $derived(getTotalFrames(config));
   const frame = $derived(clampFrameIndex(rawFrame, totalFrames));
   const currentDate = $derived(getDateAtFrame(frame, config));
-  /** Black or white behind the text, the same backdrop the MP4 is composited on. */
-  const backdrop = $derived(backdropFor(config.color));
+  /**
+   * The colour the MP4 (and a solid-background MOV) is composited on: the chosen background, or for
+   * a transparent render black or white, whichever contrasts with the text.
+   */
+  const backdrop = $derived(stageColor(config));
 
   const clock = new PlaybackClock(() => performance.now());
   let rafId = 0;
@@ -216,7 +219,7 @@
     }
   }
 
-  /* The black/white backdrop (as in the MP4) is CSS only; the canvas itself stays transparent. */
+  /* The backdrop (background colour, or black/white for transparent; as in the MP4) is CSS only; the canvas stays transparent. */
   .stage {
     position: relative;
     aspect-ratio: 16 / 9;

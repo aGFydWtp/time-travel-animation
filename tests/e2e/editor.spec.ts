@@ -361,3 +361,70 @@ test('the preview backdrop is black or white, whichever contrasts with the text 
   await expect(stage).toHaveAttribute('data-backdrop', '#000000');
   expect(await bg()).toBe('rgb(0, 0, 0)');
 });
+
+test('a solid 背景 is the preview backdrop; 透過 goes back to the automatic black/white', async ({ page }) => {
+  const stage = page.getByTestId('preview-stage');
+  const bg = () => stage.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await openAdvanced(page);
+  const background = page.getByLabel('背景', { exact: true });
+  await expect(background).toHaveValue('transparent');
+  await expect(stage).toHaveAttribute('data-backdrop', '#000000');
+
+  await background.selectOption({ label: 'グリーン' });
+  await expect(stage).toHaveAttribute('data-backdrop', '#00FF00');
+  expect(await bg()).toBe('rgb(0, 255, 0)');
+
+  // A solid background does not follow the text colour.
+  await page.getByLabel('文字色', { exact: true }).fill('#000000');
+  await background.selectOption({ label: '白' });
+  await expect(stage).toHaveAttribute('data-backdrop', '#FFFFFF');
+  await background.selectOption({ label: '黒' });
+  await expect(stage).toHaveAttribute('data-backdrop', '#000000');
+  expect(await bg()).toBe('rgb(0, 0, 0)');
+
+  // Transparent: automatic backdrop by text contrast again (black text → white).
+  await background.selectOption({ label: '透過（MOV）' });
+  await expect(stage).toHaveAttribute('data-backdrop', '#FFFFFF');
+  expect(await bg()).toBe('rgb(255, 255, 255)');
+
+  // The canvas stays transparent whatever the background (it is CSS only).
+  await background.selectOption({ label: 'グリーン' });
+  const corner = await page.getByTestId('preview-canvas').evaluate((c) =>
+    Array.from((c as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data),
+  );
+  expect(corner[3]).toBe(0);
+});
+
+test('背景: presets are selected by hex, and 好きな色 remembers its colour across choices', async ({ page }) => {
+  await openAdvanced(page);
+  const background = page.getByLabel('背景', { exact: true });
+  const hex = page.locator('#backgroundHex');
+  await expect(page.getByText('CapCut など透過 MOV を読めないアプリでは、グリーンにしてクロマキーで抜いてください。')).toBeVisible();
+  await expect(background.locator('option')).toHaveText(['透過（MOV）', '黒', '白', 'グリーン', '好きな色']);
+  await expect(hex).toHaveCount(0);
+
+  await background.selectOption({ label: '好きな色' });
+  await expect(hex).toHaveValue('#0000FF');
+  await expect(page.getByTestId('preview-stage')).toHaveAttribute('data-backdrop', '#0000FF');
+  await hex.fill('#12abef');
+  await hex.blur();
+  await expect(hex).toHaveValue('#12ABEF');
+  await expect(page.getByTestId('preview-stage')).toHaveAttribute('data-backdrop', '#12ABEF');
+
+  await background.selectOption({ label: 'グリーン' });
+  await expect(hex).toHaveCount(0);
+  await background.selectOption({ label: '透過（MOV）' });
+  await background.selectOption({ label: '好きな色' });
+  await expect(hex).toHaveValue('#12ABEF'); // remembered
+
+  // Typing a preset's hex selects that preset.
+  await hex.fill('#ffffff');
+  await expect(background).toHaveValue('white');
+  await expect(hex).toHaveCount(0);
+
+  // An invalid custom colour is an inline error on the field.
+  await background.selectOption({ label: '好きな色' });
+  await hex.fill('#12');
+  await expect(page.locator('#err-background')).toBeVisible();
+  await expect(page.getByTestId('export-button')).toBeDisabled();
+});

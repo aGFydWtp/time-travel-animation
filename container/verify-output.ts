@@ -1,8 +1,9 @@
 // Output verification: ffprobe stream checks + decoded-pixel alpha / background checks.
 // Runs inside the container (called by render-entry) and from tests on the host.
 import { open } from 'node:fs/promises';
-import { backdropFor } from '../src/lib/renderer/backdrop.ts';
+import { stageColor } from '../src/lib/renderer/backdrop.ts';
 import { textWidthEm } from '../src/lib/renderer/fonts.ts';
+import { isTransparentBackground } from '../src/lib/renderer/schema.ts';
 import type { RenderConfig } from '../src/lib/renderer/types.ts';
 import { run } from './proc.ts';
 
@@ -115,13 +116,17 @@ export function checkMp4Probe(info: ProbeInfo, exp: ExpectedVideo): CheckResult[
 }
 
 const MOV_ALPHA_PIX_FMTS = ['yuva444p10le', 'yuva444p12le', 'yuva444p16le'];
+/** Opaque ProRes 4444 (solid background). Encoded as 10-bit; FFmpeg's decoder reports 12-bit. */
+const MOV_OPAQUE_PIX_FMTS = ['yuv444p10le', 'yuv444p12le', 'yuv444p16le'];
 
-export function checkMovProbe(info: ProbeInfo, exp: ExpectedVideo): CheckResult[] {
+/** `opaque`: solid-background MOV, which must be 4:4:4 without an alpha plane. */
+export function checkMovProbe(info: ProbeInfo, exp: ExpectedVideo, opaque = false): CheckResult[] {
+  const pixFmts = opaque ? MOV_OPAQUE_PIX_FMTS : MOV_ALPHA_PIX_FMTS;
   return [
     ...commonChecks('mov', info, exp),
     check('mov.codec', info.codec === 'prores', info.codec),
     check('mov.profile', (info.profile ?? '').startsWith('4444'), String(info.profile)),
-    check('mov.pixFmt', MOV_ALPHA_PIX_FMTS.includes(info.pixFmt), info.pixFmt),
+    check('mov.pixFmt', pixFmts.includes(info.pixFmt), `${info.pixFmt} (expected ${opaque ? 'no alpha' : 'alpha'})`),
   ];
 }
 
@@ -304,29 +309,52 @@ export function checkAlphaFrame(stats: AlphaStats, config: RenderConfig): CheckR
 }
 
 /**
- * MP4 corners (outside the text box) must show the backdrop the text was composited over:
- * black (max channel <= 6) or white (min channel >= 249), allowing limited-range rounding.
+ * Max per-channel deviation allowed between a decoded background pixel and the expected colour.
+ * Measured: #00FF00 decodes as (0,255,1) and other colours within 2 after the BT.709 limited-range
+ * round trip (8-bit 4:2:0 H.264 and 10-bit ProRes); black <= 6 / white >= 249 as before.
  */
-export function checkMp4Backdrop(rgb: Buffer, config: RenderConfig): CheckResult {
+export const BACKGROUND_TOLERANCE = 6;
+
+/**
+ * Corners (outside the text box) of a decoded RGB24 frame must show the opaque colour the text was
+ * composited over: the chosen background, or the automatic black/white backdrop for a transparent
+ * render (MP4 only; that MOV has alpha instead).
+ */
+function checkBackground(prefix: 'mp4' | 'mov', rgb: Buffer, config: RenderConfig): CheckResult {
   const { width, height } = config;
-  const backdrop = backdropFor(config.color);
+  const expectedHex = stageColor(config);
+  const expected = hexToRgb(expectedHex);
   const box = textBox(config);
   let checked = 0;
-  let min = 255;
-  let max = 0;
+  let deviation = 0;
+  const seen: [number, number][] = [[255, 0], [255, 0], [255, 0]];
   for (const c of cornerBoxes(width, height)) {
     if (intersects(c, box)) continue;
     checked++;
     for (let y = c.y0; y < c.y1; y++) {
       for (let x = c.x0; x < c.x1; x++) {
         const i = (y * width + x) * 3;
-        min = Math.min(min, rgb[i], rgb[i + 1], rgb[i + 2]);
-        max = Math.max(max, rgb[i], rgb[i + 1], rgb[i + 2]);
+        for (let ch = 0; ch < 3; ch++) {
+          const v = rgb[i + ch];
+          deviation = Math.max(deviation, Math.abs(v - expected[ch]));
+          seen[ch] = [Math.min(seen[ch][0], v), Math.max(seen[ch][1], v)];
+        }
       }
     }
   }
-  const ok = checked > 0 && (backdrop === '#FFFFFF' ? min >= 249 : max <= 6);
-  return check('mp4.background', ok, `${checked} corners, channels ${min}..${max} (expected ${backdrop})`);
+  const ok = checked > 0 && deviation <= BACKGROUND_TOLERANCE;
+  const ranges = seen.map(([lo, hi]) => `${lo}..${hi}`).join(',');
+  return check(`${prefix}.background`, ok,
+    `${checked} corners, RGB ${ranges}, max deviation ${deviation} (expected ${expectedHex} ±${BACKGROUND_TOLERANCE})`);
+}
+
+export function checkMp4Backdrop(rgb: Buffer, config: RenderConfig): CheckResult {
+  return checkBackground('mp4', rgb, config);
+}
+
+/** Solid-background MOV only (a transparent MOV is checked by checkAlphaFrame). */
+export function checkMovBackground(rgb: Buffer, config: RenderConfig): CheckResult {
+  return checkBackground('mov', rgb, config);
 }
 
 export interface VerifyReport {
@@ -335,7 +363,8 @@ export interface VerifyReport {
   mp4: ProbeInfo;
   mov: ProbeInfo;
   sampleFrame: number;
-  alpha: AlphaStats;
+  /** Transparent background only (null for a solid, opaque MOV). */
+  alpha: AlphaStats | null;
 }
 
 export async function verifyOutputs(
@@ -345,17 +374,24 @@ export async function verifyOutputs(
   tools: Tools = DEFAULT_TOOLS,
 ): Promise<VerifyReport> {
   const exp: ExpectedVideo = { width: config.width, height: config.height, fps: config.fps, totalFrames };
+  const transparent = isTransparentBackground(config);
   const [mp4, mov] = await Promise.all([probe(paths.mp4, tools), probe(paths.mov, tools)]);
-  const checks = [...checkMp4Probe(mp4, exp), ...checkMovProbe(mov, exp)];
+  const checks = [...checkMp4Probe(mp4, exp), ...checkMovProbe(mov, exp, !transparent)];
   checks.push(check('mp4.faststart', await isFaststart(paths.mp4), 'moov before mdat'));
 
   const sampleFrame = Math.floor(totalFrames / 2);
-  const [movRgba, mp4Rgb] = await Promise.all([
-    extractFrame(paths.mov, sampleFrame, config.width, config.height, 'rgba', tools),
+  const [movPixels, mp4Rgb] = await Promise.all([
+    extractFrame(paths.mov, sampleFrame, config.width, config.height, transparent ? 'rgba' : 'rgb24', tools),
     extractFrame(paths.mp4, sampleFrame, config.width, config.height, 'rgb24', tools),
   ]);
-  const alpha = alphaStats(movRgba, config);
-  checks.push(...checkAlphaFrame(alpha, config), checkMp4Backdrop(mp4Rgb, config));
+  let alpha: AlphaStats | null = null;
+  if (transparent) {
+    alpha = alphaStats(movPixels, config);
+    checks.push(...checkAlphaFrame(alpha, config));
+  } else {
+    checks.push(checkMovBackground(movPixels, config));
+  }
+  checks.push(checkMp4Backdrop(mp4Rgb, config));
 
   return { ok: checks.every((c) => c.ok), checks, mp4, mov, sampleFrame, alpha };
 }

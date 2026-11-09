@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { safeParseRenderConfig } from '../renderer/schema.ts';
 import { DEFAULT_CONFIG } from '../renderer/types.ts';
-import { defaultForm, fieldErrors, formFromConfig, formToConfigInput, normalizeHex } from './editor-form.ts';
+import {
+  BACKGROUND_CHOICES,
+  DEFAULT_CUSTOM_BACKGROUND,
+  backgroundChoice,
+  backgroundValue,
+  defaultForm,
+  fieldErrors,
+  formFromConfig,
+  formToConfigInput,
+  normalizeHex,
+} from './editor-form.ts';
 
 describe('form <-> config', () => {
   it('default form parses to DEFAULT_CONFIG', () => {
@@ -64,5 +74,46 @@ describe('normalizeHex', () => {
     expect(normalizeHex('ff8800')).toBe('#FF8800');
     expect(normalizeHex('#fff')).toBeNull();
     expect(normalizeHex('zzzzzz')).toBeNull();
+  });
+});
+
+describe('背景 (background)', () => {
+  it('offers the five choices in order', () => {
+    expect(BACKGROUND_CHOICES.map((c) => c.label)).toEqual(['透過（MOV）', '黒', '白', 'グリーン', '好きな色']);
+  });
+
+  it('selects the preset whose hex matches (any case), otherwise 好きな色', () => {
+    expect(backgroundChoice('transparent')).toBe('transparent');
+    expect(backgroundChoice('#000000')).toBe('black');
+    expect(backgroundChoice('#ffffff')).toBe('white');
+    expect(backgroundChoice('00FF00')).toBe('green');
+    expect(backgroundChoice('#123456')).toBe('custom');
+    expect(backgroundChoice('#12')).toBe('custom'); // mid-edit stays on 好きな色
+    expect(backgroundChoice(DEFAULT_CUSTOM_BACKGROUND)).toBe('custom');
+  });
+
+  it('a choice sets its value; 好きな色 restores the remembered colour', () => {
+    expect(backgroundValue('transparent', '#123456')).toBe('transparent');
+    expect(backgroundValue('green', '#123456')).toBe('#00FF00');
+    expect(backgroundValue('custom', '#123456')).toBe('#123456');
+  });
+
+  it('round-trips transparent, preset and custom backgrounds through the form', () => {
+    for (const background of ['transparent', '#00FF00', '#12ABEF'] as const) {
+      const config = { ...DEFAULT_CONFIG, background };
+      expect(formFromConfig(config).background).toBe(background);
+      expect(safeParseRenderConfig(formToConfigInput(formFromConfig(config))).data).toEqual(config);
+    }
+  });
+
+  it('a config without background (old job) loads as transparent', () => {
+    const { background: _b, ...legacy } = DEFAULT_CONFIG;
+    expect(formFromConfig(legacy as typeof DEFAULT_CONFIG).background).toBe('transparent');
+  });
+
+  it('an invalid custom colour is reported on the background field', () => {
+    const parsed = safeParseRenderConfig(formToConfigInput({ ...defaultForm(), background: '#12' }));
+    expect(parsed.success).toBe(false);
+    expect(Object.keys(fieldErrors(parsed.error?.issues))).toEqual(['background']);
   });
 });

@@ -1,5 +1,6 @@
 /**
- * Opaque backdrop behind the date: the preview's CSS background and the MP4's composite color.
+ * Automatic backdrop behind the date for a TRANSPARENT render: the preview's CSS background and the
+ * MP4's composite color.
  * The canvas and the transparent MOV never contain it.
  *
  * Black or white, whichever contrasts more with the text color, so dark text stays visible.
@@ -23,4 +24,14 @@ export function backdropFor(textColor: string): Backdrop {
   const onBlack = (l + 0.05) / 0.05;
   const onWhite = 1.05 / (l + 0.05);
   return onWhite > onBlack ? '#FFFFFF' : '#000000';
+}
+
+/**
+ * The opaque colour the video sits on: the chosen solid background, or for a transparent render
+ * the automatic black/white backdrop (preview CSS and MP4 only; the MOV keeps its alpha).
+ * Configs stored before the background option have no `background` and are transparent.
+ */
+export function stageColor(config: { color: string; background?: string | undefined }): string {
+  const bg = config.background ?? 'transparent';
+  return bg === 'transparent' ? backdropFor(config.color) : bg.toUpperCase();
 }

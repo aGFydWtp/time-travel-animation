@@ -43,8 +43,17 @@ describe('formatShortTimestamp', () => {
 });
 
 describe('summarizeStyle', () => {
-  it('shows font label, size, colour and position', () => {
-    expect(summarizeStyle(DEFAULT_CONFIG)).toBe('等幅（JetBrains Mono） · 96px · #FFFFFF · 位置 0.50, 0.50');
+  it('shows font label, size, colour, position and background', () => {
+    expect(summarizeStyle(DEFAULT_CONFIG)).toBe('等幅（JetBrains Mono） · 96px · #FFFFFF · 位置 0.50, 0.50 · 背景 透過');
+  });
+
+  it('names preset backgrounds and shows a custom one as hex; old jobs without background are 透過', () => {
+    const style = (background: unknown) => summarizeStyle({ ...DEFAULT_CONFIG, background } as typeof DEFAULT_CONFIG);
+    expect(style('#000000')).toMatch(/ · 背景 黒$/);
+    expect(style('#FFFFFF')).toMatch(/ · 背景 白$/);
+    expect(style('#00FF00')).toMatch(/ · 背景 グリーン$/);
+    expect(style('#12abef')).toMatch(/ · 背景 #12ABEF$/);
+    expect(style(undefined)).toMatch(/ · 背景 透過$/);
   });
 });
 

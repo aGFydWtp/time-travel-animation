@@ -14,6 +14,23 @@ export type DateFormat = (typeof DATE_FORMATS)[number];
  */
 export const LEGACY_DATE_FORMAT: DateFormat = 'YYYY.MM.DD';
 
+/**
+ * Video background. 'transparent' = ProRes 4444 MOV with alpha (the MP4 gets the automatic
+ * black/white backdrop). A `#RRGGBB` colour = both the MP4 and an opaque ProRes 4444 MOV are
+ * composited over that colour (for editors that can't read alpha, e.g. CapCut: green + chroma key).
+ */
+export type Background = 'transparent' | `#${string}`;
+
+/** Assumed when a stored/submitted config has no `background` (configs from before the option). */
+export const DEFAULT_BACKGROUND = 'transparent' satisfies Background;
+
+/** Named solid backgrounds offered in the editor (any other #RRGGBB is 好きな色). */
+export const BACKGROUND_PRESETS = [
+  { key: 'black', label: '黒', hex: '#000000' },
+  { key: 'white', label: '白', hex: '#FFFFFF' },
+  { key: 'green', label: 'グリーン', hex: '#00FF00' },
+] as const satisfies readonly { key: string; label: string; hex: Background }[];
+
 export interface RenderConfig {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
@@ -26,6 +43,7 @@ export interface RenderConfig {
   fontFamily: string; // bundled font identifier (key of FONTS)
   fontSize: number; // output pixels
   color: string; // #RRGGBB
+  background: Background;
   x: number; // 0..1
   y: number; // 0..1
 }
@@ -58,6 +76,7 @@ export const DEFAULT_CONFIG: Readonly<RenderConfig> = Object.freeze({
   fontFamily: 'bundled-mono',
   fontSize: 96,
   color: '#FFFFFF',
+  background: DEFAULT_BACKGROUND,
   x: 0.5,
   y: 0.5,
 });
