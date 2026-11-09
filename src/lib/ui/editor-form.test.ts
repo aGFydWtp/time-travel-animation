@@ -86,7 +86,8 @@ describe('背景 (background)', () => {
     expect(backgroundChoice('transparent')).toBe('transparent');
     expect(backgroundChoice('#000000')).toBe('black');
     expect(backgroundChoice('#ffffff')).toBe('white');
-    expect(backgroundChoice('00FF00')).toBe('green');
+    expect(backgroundChoice('#00ff00')).toBe('green');
+    expect(backgroundChoice('00FF00')).toBe('custom'); // no '#' yet: keep the hex field until blur normalizes it
     expect(backgroundChoice('#123456')).toBe('custom');
     expect(backgroundChoice('#12')).toBe('custom'); // mid-edit stays on 好きな色
     expect(backgroundChoice(DEFAULT_CUSTOM_BACKGROUND)).toBe('custom');

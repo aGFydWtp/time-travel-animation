@@ -8,13 +8,15 @@
     id: string;
     pickerId: string;
     pickerLabel: string;
+    /** Accessible name for the hex input when no <label for={id}> names it. */
+    hexLabel?: string | undefined;
     invalid?: boolean;
     describedBy?: string | undefined;
     /** Fallback shown by the picker while the hex text is not a valid colour. */
     fallback?: string;
   }
 
-  let { value = $bindable(), id, pickerId, pickerLabel, invalid = false, describedBy, fallback = '#ffffff' }: Props =
+  let { value = $bindable(), id, pickerId, pickerLabel, hexLabel, invalid = false, describedBy, fallback = '#ffffff' }: Props =
     $props();
 
   // The colour picker only understands lowercase #rrggbb; fall back while the hex field is mid-edit.
@@ -41,6 +43,7 @@
     autocomplete="off"
     bind:value
     onblur={onHexBlur}
+    aria-label={hexLabel}
     aria-invalid={invalid}
     aria-describedby={describedBy}
   />

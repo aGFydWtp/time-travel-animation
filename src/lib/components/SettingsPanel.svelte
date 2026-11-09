@@ -7,6 +7,7 @@
     RESOLUTION_OPTIONS,
     backgroundChoice,
     backgroundValue,
+    normalizeHex,
     type BackgroundChoice,
     type EditorForm,
     type FormField,
@@ -32,10 +33,11 @@
 
   // 背景: the selected choice follows the value (a preset's hex selects that preset).
   const bgChoice = $derived(backgroundChoice(form.background));
-  // Last 好きな色, restored when switching back to it from another choice (also picks up a ?from= load).
+  // Last valid 好きな色, restored when switching back to it from another choice (also picks up a ?from= load).
   let lastCustomBackground = $state(DEFAULT_CUSTOM_BACKGROUND);
   $effect(() => {
-    if (bgChoice === 'custom') lastCustomBackground = form.background;
+    const hex = normalizeHex(form.background);
+    if (bgChoice === 'custom' && hex) lastCustomBackground = hex;
   });
 
   function onBackgroundChoice(event: Event) {
@@ -274,6 +276,7 @@
               id="backgroundHex"
               pickerId="backgroundPicker"
               pickerLabel="背景色（カラーピッカー）"
+              hexLabel="背景色（16進）"
               invalid={!!err('background')}
               describedBy={describedBy('background')}
               fallback="#0000ff"

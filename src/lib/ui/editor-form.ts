@@ -128,10 +128,15 @@ export const BACKGROUND_CHOICES: readonly { value: BackgroundChoice; label: stri
 /** Starting colour for 好きな色 until the user picks one (not a preset, so the choice stays 好きな色). */
 export const DEFAULT_CUSTOM_BACKGROUND = '#0000FF';
 
-/** Which choice a background value shows: a preset's hex selects that preset; any other value is 好きな色. */
+/**
+ * Which choice a background value shows: a complete `#RRGGBB` equal to a preset selects that preset;
+ * anything else (other colours, or text still being typed, e.g. `00ff00` without `#`) is 好きな色, so the
+ * hex field stays mounted until its blur normalizes the value.
+ */
 export function backgroundChoice(value: string): BackgroundChoice {
-  if (value.trim() === 'transparent') return 'transparent';
-  const hex = normalizeHex(value);
+  if (value === 'transparent') return 'transparent';
+  if (!/^#[0-9A-Fa-f]{6}$/.test(value)) return 'custom';
+  const hex = value.toUpperCase();
   return BACKGROUND_PRESETS.find((p) => p.hex === hex)?.key ?? 'custom';
 }
 
