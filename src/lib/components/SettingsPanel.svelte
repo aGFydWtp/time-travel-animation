@@ -263,7 +263,7 @@
             id="background"
             value={bgChoice}
             onchange={onBackgroundChoice}
-            aria-describedby={['background-hint', describedBy('background')].filter(Boolean).join(' ')}
+            aria-describedby={describedBy('background')}
             data-choice={bgChoice}
           >
             {#each BACKGROUND_CHOICES as option (option.value)}
@@ -284,7 +284,6 @@
           {/if}
         </div>
         {#if err('background')}<p class="error" id="err-background">{err('background')}</p>{/if}
-        <p class="hint" id="background-hint">CapCut など透過 MOV を読めないアプリでは、グリーンにしてクロマキーで抜いてください。</p>
       </div>
     </div>
   </details>
@@ -407,12 +406,6 @@
     display: flex;
     gap: 8px;
     align-items: center;
-  }
-
-  .hint {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
   }
 
   /* 背景 spans the row: the choice (one column wide) and, for 好きな色, its colour field beside it. */

@@ -399,7 +399,6 @@ test('背景: presets are selected by hex, and 好きな色 remembers its colour
   await openAdvanced(page);
   const background = page.getByLabel('背景', { exact: true });
   const hex = page.locator('#backgroundHex');
-  await expect(page.getByText('CapCut など透過 MOV を読めないアプリでは、グリーンにしてクロマキーで抜いてください。')).toBeVisible();
   await expect(background.locator('option')).toHaveText(['透過（MOV）', '黒', '白', 'グリーン', '好きな色']);
   await expect(hex).toHaveCount(0);
 
